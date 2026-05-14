@@ -1,0 +1,399 @@
+string flbh,k,l,CURBJBBH
+long yjbjbcnt,tzbcnt,yjbsrccnt, currow1,num
+integer i,flag
+cur_hzlx = 0; st_3.text = "正在进行报价单统计，标准化报价单···" ; st_3.visible = true
+//===============该报价单中是否有《名称项》与《规格型号项》同时为空的器件
+CURBJBBH = curbjdbh
+SELECT BJB.x_bm  into :k  FROM BJB  
+    WHERE ( BJB.fabh = :CURBJBBH ) AND  ( BJB.x_mc = "" ) AND   ( BJB.x_ggxh = "" ) AND  ( BJB.x_lx = 11 )   
+    using sqlca;
+if isnull(k) then 
+	k = ""
+end if
+if k <> ""  then 
+	i = MessageBox("警告", "编号:" + k + "的名称和规格型号不能都为空！，是否继续进行(不能汇总完全)?",  Exclamation!, OKCancel!, 2)
+	if i = 2 then
+		commit using sqlca; st_3.visible = false; return
+	end if
+end if 
+//==============汇总初始化处理
+DECLARE BJB_YJHZ_SCH1 PROCEDURE FOR BJB_YJHZ_SCH0 @BJDBH = :CURBJBBH 	using sqlca;
+execute BJB_YJHZ_SCH1;
+if sqlca.sqlcode < 0 then
+	messagebox("警告","项目器件汇总初始化出错") ;	rollback USING SQLCA;st_3.visible = false;return 
+else
+	commit using sqlca;
+end if
+//==============报价单本身汇总
+  //1:***清除分类汇总表以前的汇总内容
+  st_3.text = "正在进行报价单统计，清除以前汇总···"
+  //===========================
+   bzb = create datastore  //包装规格表
+   bzb.dataobject =  "dw_bjd_bzb"  ;  bzb.settrans(sqlca)  ; bzbcnt=bzb.retrieve()
+   wyb = create datastore  //网印规格表
+   wyb.dataobject =  "dw_bjd_wyb"  ;  wyb.settrans(sqlca)  ; wybcnt=wyb.retrieve()
+   hzlx = create datastore  //汇总类型规格表
+   hzlx.dataobject =  "dw_bjd_hzyl"  ;  hzlx.settrans(sqlca)  ; hzlxcnt=hzlx.retrieve()
+   jcb = create datastore  //汇总类型规格表
+   jcb.dataobject =  "dw_bjd_jcb"  ;  jcb.settrans(sqlca)  ; jcbcnt=jcb.retrieve()
+   hzb = create datastore  //汇总类型规格表
+   hzb.dataobject =  "dw_bjd_bjdsele"  ;  hzb.settrans(sqlca)  
+  //2:***按器件进行<项目价格>汇总
+  st_3.text = "正在进行报价单统计，汇总1···"
+  if ( hz1() = false ) then
+	 st_3.visible = false; destroy bzb ; destroy wyb ; destroy   hzlx ; destroy  jcb ;destroy hzb ;  return
+  end if
+  destroy bzb ; destroy wyb ; destroy   hzlx ;
+  //3:***按器件进行<分类价格>汇总
+   st_3.text = "正在进行报价单分类统计框架生成，请稍候···"
+	flhzhzb = create datastore  //汇总类型规格表
+   flhzhzb.dataobject =  "dw_bjd_hzb"  ;  flhzhzb.settrans(sqlca) 
+   //生成汇总目标框架
+	if ( flhzkj_sc() = false ) then 
+		st_3.visible = false;  destroy  jcb ;destroy hzb ; destroy  flhzhzb ;return
+	end if
+  //4:***进行汇总
+  st_3.text = "正在进行报价单统计，汇总3···"
+   //进行汇总
+	 if ( hz2() = false ) then
+		st_3.visible = false; destroy  jcb ;destroy hzb ; destroy  flhzhzb ;return
+    end if
+	//进行汇总保存
+	 string temp_flhzb[]
+	 double temp_flhzbzj[]
+	 flag = 0
+    DECLARE BJB_YJHZ_INSERT PROCEDURE FOR BJB_YJHZ_SAVE1  
+         @BJDBH = :curbjdbh,  @X1 = :temp_flhzb[1], @X2 = :temp_flhzb[2], @X3 = :temp_flhzb[7], @X4 = :temp_flhzbzj[2],   
+         @X5 = :temp_flhzbzj[3],  @X6 = :temp_flhzbzj[5], @X7 = :temp_flhzbzj[6], @X8 = :temp_flhzbzj[7],   
+         @X9 = :temp_flhzbzj[8],  @X10 = :temp_flhzbzj[9],@X11 = :temp_flhzbzj[10], @X12 = :temp_flhzbzj[11],   
+         @X13 = :temp_flhzbzj[12],@X14 = :temp_flhzbzj[13],@X15 = :temp_flhzbzj[14],@X16 = :temp_flhzbzj[15],   
+         @X17 = :temp_flhzbzj[16],@X18 = :temp_flhzbzj[17],@X19 = :temp_flhzbzj[18],@X20 = :temp_flhzbzj[19],   
+         @X21 = :temp_flhzbzj[20],@X22 = :temp_flhzbzj[21],@X23 = :temp_flhzbzj[22],@X24 = :temp_flhzbzj[23],   
+         @X25 = :temp_flhzbzj[24],@X26 = :temp_flhzbzj[25],@X27 = :temp_flhzbzj[26],@X28 = :temp_flhzbzj[27],   
+         @X29 = :temp_flhzbzj[4], @X30 = :temp_flhzbzj[1], @X31 = :temp_flhzb[3],   @X32 = :temp_flhzb[4],   
+         @X33 = :temp_flhzb[5],   @X34 = :temp_flhzb[6] 
+			USING SQLCA;
+	 for i = 1 to flhzhzb.rowcount() - 1
+		  st_3.text = "正在进行报价单统计汇总3保存：" + string(i)
+     	  temp_flhzb[1] = flhzhzb.object.x_bm[i] ;   temp_flhzb[2] = flhzhzb.object.x_mc[i] 
+	     temp_flhzb[3] = flhzhzb.object.x_flbh[i];  temp_flhzb[4] = flhzhzb.object.x_ggxh[i] 
+	     temp_flhzb[5] = flhzhzb.object.x_sccj[i] ; temp_flhzb[6] = flhzhzb.object.x_key_ry[i] 
+	     temp_flhzb[7] = flhzhzb.object.x_sm[i] ;   temp_flhzbzj[1] = flhzhzb.object.x_cgf[i] 
+	  	  temp_flhzbzj[2] = 	flhzhzb.object.x_lx[i] ;temp_flhzbzj[3] = 	flhzhzb.object.x_sl[i]
+	  	  temp_flhzbzj[4] = 	flhzhzb.object.x_wzfy[i]; temp_flhzbzj[5] = 	flhzhzb.object.x_zj1[i]     //材料总价
+	  	  temp_flhzbzj[6] =  flhzhzb.object.x_zj1_bj[i]   //材料报价
+	  	  temp_flhzbzj[7] =  flhzhzb.object.x_zj1_jj[i]   //材料进价
+	  	  temp_flhzbzj[8] =  flhzhzb.object.x_zj1_scj[i]   //材料市场价
+	  	  temp_flhzbzj[9] =  flhzhzb.object.x_zj1_zdj[i]  //材料最低价
+	  	  temp_flhzbzj[10] = flhzhzb.object.x_zj2[i]  ;temp_flhzbzj[11] =  flhzhzb.object.x_zj2_zdj[i]    // 辅料价格
+	  	  temp_flhzbzj[12] = flhzhzb.object.x_zj3[i]  ;temp_flhzbzj[13] =  flhzhzb.object.x_zj3_zdj[i]   // 客体价格
+	  	  temp_flhzbzj[14] = flhzhzb.object.x_zj4[i]  ;temp_flhzbzj[15] =  flhzhzb.object.x_zj4_zdj[i]   // 安装价格
+	  	  temp_flhzbzj[16] = flhzhzb.object.x_zj5[i]  ;temp_flhzbzj[17] =  flhzhzb.object.x_zj5_zdj[i]  // 包装价格
+	  	  temp_flhzbzj[18] = flhzhzb.object.x_zj6[i]  ;temp_flhzbzj[19] =  flhzhzb.object.x_zj6_zdj[i]   // 网印价格
+	  	  temp_flhzbzj[20] = flhzhzb.object.x_zj7[i]  ;temp_flhzbzj[21] =  flhzhzb.object.x_zj7_zdj[i]   //
+	  	  temp_flhzbzj[22] = flhzhzb.object.x_zj8[i]  ;temp_flhzbzj[23] =  flhzhzb.object.x_zj8_zdj[i]  //
+	  	  temp_flhzbzj[24] = flhzhzb.object.x_zj9[i]  ;temp_flhzbzj[25] =  flhzhzb.object.x_zj9_zdj[i]   //
+	  	  temp_flhzbzj[26] = flhzhzb.object.x_zj10[i] ;temp_flhzbzj[27] = flhzhzb.object.x_zj10_zdj[i]  //直接输入
+        execute  BJB_YJHZ_INSERT ;
+	     if sqlca.sqlcode < 0 then
+	       flag = 1;messagebox("错误","报价单分类统计，汇总3·"+temp_flhzb[1]+"出问题!");
+	     else
+		    commit using sqlca;
+        end if
+	 next
+	 INSERT INTO BJB_HZB
+	        select  FABH,   "9999",  x_mc, x_sm, x_lx, x_sl,
+			          x_zj1, x_zj1_bj, x_zj1_jj, x_zj1_scj, x_zj1_zdj,   
+                   x_zj2, x_zj2_zdj, x_zj3, x_zj3_zdj,  x_zj4,  x_zj4_zdj,   
+                   x_zj5, x_zj5_zdj, x_zj6, x_zj6_zdj,  x_zj7,  x_zj7_zdj,   
+                   x_zj8, x_zj8_zdj, x_zj9, x_zj9_zdj,  x_zj10, x_zj10_zdj,   
+                   x_wzfy,x_cgf,  x_flbh,   x_ggxh,   x_sccj, x_key_ry 
+			  from bjb_hzb
+			  where fabh =  :curbjdbh  and x_bm = "0"
+			  using sqlca;
+	 if flag = 1 or sqlca.sqlcode <> 0  then
+		  messagebox("错误","报价单分类统计，汇总3出问题!"); destroy  jcb ;destroy hzb ; destroy  flhzhzb;  return
+	 end if
+commit using sqlca; 
+destroy  jcb ;destroy hzb ; destroy  flhzhzb 
+commit using sqlca;
+//========================================
+ //删除bjb_xmyjb,bjb_xmyjhzb
+ st_3.text = "正在进行报价单按柜元件汇总，请稍后···";
+//===================格式化规格型号
+datastore yjbsrc_gs
+string cur_tempstr
+long yjbsrc_gscnt,j
+yjbsrc_gs = create datastore; yjbsrc_gs.dataobject = "dw_bjb_xmhz_src2";    yjbsrc_gs.settransobject(sqlca);    yjbsrc_gscnt=yjbsrc_gs.retrieve(curbjdbh)
+for i = 1 to yjbsrc_gscnt
+	cur_tempstr = yjbsrc_gs.object.x_ggxh[i]
+	cur_tempstr = trim(cur_tempstr)
+   if cur_tempstr = "" or isnull(cur_tempstr) then
+		 cur_tempstr = yjbsrc_gs.object.x_mc[i]
+	end if
+	//将"－" 与 "-" 统一为 "-"
+	j =  pos(cur_tempstr,"－")
+	do while j > 0 
+	   cur_tempstr = replace(cur_tempstr,j,2,"-")	
+		j =  pos(cur_tempstr,"－")
+	loop
+	//去掉空格
+	//j =  pos(cur_tempstr," ")
+	//do while j > 0 
+	   //cur_tempstr = replace(cur_tempstr,j,1,"")	
+		//j =  pos(cur_tempstr," ")
+	//loop
+	yjbsrc_gs.object.x_ggxh[i] = 	cur_tempstr
+next
+ yjbsrc_gs.update()
+ if sqlca.sqlcode < 0   then
+	    messagebox("错误","项目元件按柜汇总失败!" );
+		destroy yjbsrc_gs;    rollback using sqlca;st_3.visible = false;	return
+end if
+commit using sqlca;
+//========================项目元件按柜分类统计
+datastore yjbjb ,yjbsrc
+string cur_dymc,cur_dybm
+long cur_uprow ,cursxh
+cursxh = 1
+yjbjb = create datastore; yjbjb.dataobject = "dw_bjb_xmhz_1";    yjbjb.settransobject(sqlca);    yjbjbcnt=yjbjb.retrieve(curbjdbh)
+yjbsrc = create datastore;yjbsrc.dataobject = "dw_bjb_xmhz_src1";    yjbsrc.settransobject(sqlca); yjbsrccnt=yjbsrc.retrieve(curbjdbh)
+if yjbsrccnt >= 1 then
+	   st_3.text = "正在进行报价单按柜元件汇总，" + string(cursxh) + "请稍后···";
+		currow1 = yjbjb.insertrow(0)
+		yjbjb.object.fabh[currow1] =  curbjdbh;yjbjb.object.x_sxh[currow1] =  cursxh;cursxh = cursxh + 1
+		if yjbsrc.object.x_lx[1] = 1 then   //单元
+			   yjbjb.object.x_flbh[currow1] = "";    yjbjb.object.x_ggxh[currow1] =  ""
+		      yjbjb.object.x_sccj[currow1] =  "";   yjbjb.object.x_key_ry[currow1] =  ""
+			   yjbjb.object.x_lylx[currow1] = 0  ;   yjbjb.object.x_bcg_sl[currow1] =  0
+			   yjbjb.object.x_dyh[currow1]  = yjbsrc.object.x_sm[1]
+			   yjbjb.object.x_zsl[currow1]  = DEC(yjbsrc.object.x_sl[1]); yjbjb.object.x_zje[currow1] =  DEC(yjbsrc.object.x_zj1[1]) * yjbsrc.object.x_sl[1]
+			   yjbjb.object.x_lx[currow1]  =  1; yjbjb.object.x_zxm_sl[currow1] = yjbjb.object.x_zsl[currow1]
+				yjbjb.object.x_zxm_je[currow1] = yjbjb.object.x_zje[currow1];yjbjb.object.x_zxm_bcg_sl[currow1] = 0
+			   yjbjb.object.x_qjmc[currow1] = "";	 yjbjb.object.x_dymc[currow1] = yjbsrc.object.x_mc[1]
+			   cur_dymc  = yjbsrc.object.x_mc[1];  cur_dybm = yjbsrc.object.x_sm[1]
+	     else			                    //元件
+			   yjbjb.object.x_flbh[currow1] = yjbsrc.object.x_flbh[1];  
+				cur_tempstr = yjbsrc.object.x_ggxh[1]
+				yjbjb.object.x_ggxh[currow1] = cur_tempstr
+		      yjbjb.object.x_sccj[currow1] = yjbsrc.object.x_sccj[1] ; 
+				yjbjb.object.x_key_ry[currow1] =  yjbsrc.object.x_key_ry[1]
+			   yjbjb.object.x_dyh[currow1]  = yjbsrc.object.x_sm[1]   ;   yjbjb.object.x_lylx[currow1] = 0
+			   yjbjb.object.x_zsl[currow1]  = DEC(yjbsrc.object.x_sl[1])
+			   if yjbsrc.object.x_cgf[1] = 0 then
+			      yjbjb.object.x_bcg_sl[currow1] = DEC( yjbsrc.object.x_sl[1]);		 yjbjb.object.x_zje[currow1] = 0
+			    else
+				   yjbjb.object.x_bcg_sl[currow1] = 0 ; yjbjb.object.x_zje[currow1] =  DEC(yjbsrc.object.x_zj1[1]) * yjbsrc.object.x_sl[1]
+			   end if
+				yjbjb.object.x_zxm_sl[currow1] = 0;	yjbjb.object.x_zxm_je[currow1] = 0;yjbjb.object.x_zxm_bcg_sl[currow1] = 0
+				yjbjb.object.x_qjmc[currow1] = yjbsrc.object.x_mc[1]; yjbjb.object.x_dymc[currow1] = yjbsrc.object.x_mc[1]
+			   yjbjb.object.x_lx[currow1]  = yjbsrc.object.x_lx[1]
+			   cur_dymc = yjbsrc.object.x_mc[1];cur_dybm = yjbsrc.object.x_sm[1]
+	     end if
+end if
+for i = 2 to yjbsrccnt
+   flag = 0; st_3.text = "正在进行报价单按柜元件汇总，" + string(cursxh) + "请稍后···";
+	for j = currow1 to  1 step -1 
+		if Upper (yjbjb.object.x_dyh[j]) = Upper (yjbsrc.object.x_sm[i]) then
+	        if      Upper( yjbjb.object.x_ggxh[j]) = Upper (yjbsrc.object.x_ggxh[i]) &
+			      and Upper (yjbjb.object.x_sccj[j]) = Upper (yjbsrc.object.x_sccj[i]) & 
+			      and upper(yjbjb.object.x_key_ry[j]) = upper(yjbsrc.object.x_key_ry[i])  & 
+		         and yjbjb.object.x_lx[j]  = yjbsrc.object.x_lx[i]  then
+	            //同型号元件
+	            yjbjb.object.x_zsl[j]  = DEC( yjbjb.object.x_zsl[j]) +DEC( yjbsrc.object.x_sl[i])
+	            if yjbsrc.object.x_cgf[i] = 0 then
+		            yjbjb.object.x_bcg_sl[j] =  DEC(yjbjb.object.x_bcg_sl[j]) +DEC( yjbsrc.object.x_sl[i]) 
+		         else
+			         yjbjb.object.x_zje[j] =DEC( yjbjb.object.x_zje[j]) + DEC( yjbsrc.object.x_zj1[i]) *  yjbsrc.object.x_sl[i]
+		         end if
+	            flag = 1; exit
+           end if
+	    else
+			 flag = 0; exit
+	   end if
+   next
+	if flag = 1 then	CONTINUE;
+	//不同
+		currow1 = yjbjb.insertrow(0);	yjbjb.object.fabh[currow1] =  curbjdbh;yjbjb.object.x_sxh[currow1] =  cursxh;cursxh = cursxh + 1
+		if cur_dybm <> yjbsrc.object.x_sm[i]  then
+			cur_dybm = yjbsrc.object.x_sm[i] ;cur_dymc = yjbsrc.object.x_mc[i] 
+		end if
+		if yjbsrc.object.x_lx[i] = 1 then //单元
+			yjbjb.object.x_flbh[currow1] = "" ;   yjbjb.object.x_ggxh[currow1] =  ""
+		   yjbjb.object.x_sccj[currow1] =  "";   yjbjb.object.x_key_ry[currow1] = ""
+			yjbjb.object.x_dyh[currow1]  = yjbsrc.object.x_sm[i];     yjbjb.object.x_lylx[currow1] = 0
+			
+			yjbjb.object.x_zsl[currow1]  = DEC(yjbsrc.object.x_sl[i]);   yjbjb.object.x_bcg_sl[currow1] =0
+			yjbjb.object.x_zje[currow1] = DEC( yjbsrc.object.x_zj1[i])
+			yjbjb.object.x_zxm_sl[currow1] = yjbjb.object.x_zsl[currow1]
+			yjbjb.object.x_zxm_je[currow1] = yjbjb.object.x_zje[currow1]
+			yjbjb.object.x_zxm_bcg_sl[currow1] = 0
+			yjbjb.object.x_qjmc[currow1] = "";    yjbjb.object.x_dymc[currow1] = yjbsrc.object.x_mc[i]
+			yjbjb.object.x_lx[currow1]  = yjbsrc.object.x_lx[i]
+	   else                             //元件
+			yjbjb.object.x_flbh[currow1] = yjbsrc.object.x_flbh[i];  yjbjb.object.x_ggxh[currow1] = yjbsrc.object.x_ggxh[i]
+		   yjbjb.object.x_sccj[currow1] = yjbsrc.object.x_sccj[i];  yjbjb.object.x_key_ry[currow1] = yjbsrc.object.x_key_ry[i]
+			yjbjb.object.x_dyh[currow1]  = yjbsrc.object.x_sm[i];    yjbjb.object.x_lylx[currow1] = 0
+			yjbjb.object.x_zsl[currow1]  =DEC( yjbsrc.object.x_sl[i])
+			if yjbsrc.object.x_cgf[i] = 0 then
+			   yjbjb.object.x_bcg_sl[currow1] = DEC(yjbsrc.object.x_sl[i])
+			else
+				yjbjb.object.x_bcg_sl[currow1] = 0 ;yjbjb.object.x_zje[currow1] = DEC( yjbsrc.object.x_zj1[i]) * yjbsrc.object.x_sl[i]
+			end if
+			yjbjb.object.x_qjmc[currow1] = yjbsrc.object.x_mc[i]; k = yjbsrc.object.x_bm[i]
+		   if len(k) = 4 then
+			   yjbjb.object.x_dymc[currow1] = yjbsrc.object.x_mc[i]
+			else
+				yjbjb.object.x_dymc[currow1] = cur_dymc
+		   end if
+			yjbjb.object.x_lx[currow1]  = yjbsrc.object.x_lx[i]
+			if yjbjb.object.x_flbh[currow1] = "" and   yjbjb.object.x_ggxh[currow1] =  "" and   yjbjb.object.x_sccj[currow1] =  "" and   yjbjb.object.x_key_ry[currow1] = "" then
+				yjbjb.object.x_ggxh[currow1] =  yjbsrc.object.x_mc[i]
+			end if
+			yjbjb.object.x_zxm_sl[currow1] = 0;yjbjb.object.x_zxm_je[currow1] = 0;yjbjb.object.x_zxm_bcg_sl[currow1] = 0
+		end if
+		cur_uprow = yjbjb.update()
+      if sqlca.sqlcode < 0  or  cur_uprow <> 1 then
+	         messagebox("错误","项目元件按柜汇总失败!" + string(yjbjb.object.x_dyh[currow1]) + ":" + string( yjbjb.object.x_ggxh[currow1] ));
+				destroy yjbjb; destroy yjbsrc;   rollback using sqlca;st_3.visible = false;	return
+      end if
+next
+cur_uprow = yjbjb.update()
+if sqlca.sqlcode < 0   then
+	messagebox("错误","项目元件按柜汇总失败!");destroy yjbjb; destroy yjbsrc;   rollback using sqlca;st_3.visible = false;	return
+end if
+commit using sqlca ;  destroy yjbjb ;  destroy yjbsrc; 
+yjbjb = create datastore;yjbjb.dataobject = "dw_bjb_xmhz_7";    yjbjb.settransobject(sqlca);    yjbjbcnt=yjbjb.retrieve(curbjdbh)
+double kk
+if yjbjbcnt > 0 then
+	for i = 1 to yjbjbcnt
+	  cur_dybm = yjbjb.object.x_dyh[i];  kk = yjbjb.object.x_zsl[i]
+	  UPDATE BJB_XMYJB  SET x_zxm_sl = x_zsl * :kk, x_zxm_je = x_zje * :kk, x_zxm_bcg_sl = x_bcg_sl * :kk
+		  WHERE ( BJB_XMYJB.fabh = :curbjdbh ) AND  ( BJB_XMYJB.x_dyh = :cur_dybm ) AND  ( BJB_XMYJB.x_lx = 11 )   
+        using sqlca   ;
+	  if sqlca.sqlcode < 0 then
+		  messagebox("错误","项目元件按柜汇总失败!");destroy yjbjb;  rollback using sqlca;st_3.visible = false;	return
+	   else
+		  commit using sqlca;
+     end if
+	next
+end if
+destroy yjbjb;
+//===============================================================================================
+//==========================项目元件分类统计=
+////////////////项目元件分类统计=
+st_3.text = "正在进行报价单项目元件分类统计表==>元件初始化，请稍后···"
+CURBJBBH = curbjdbh
+DECLARE BJB_YJHZB_CSH PROCEDURE FOR BJB_YJHZB_SC4
+         @BJDBH = :CURBJBBH USING SQLCA;
+ EXECUTE BJB_YJHZB_CSH;
+ COMMIT USING SQLCA; 
+ st_3.text = "正在进行报价单项目元件分类统计表==>类型统计，请稍后···"
+//////////////////////////////////////项目元件分类统计111111111111111111111111111111111111111//
+datastore yjbjb1 ,yjbsrc1
+long yjbjb1cnt ,cur_qjflnum,currow2
+double cur_sl,cur_je
+string cur_flbh,cur_ggxh,cur_sccj,cur_key_ry,cur_qjfl[],cur_qjmc,cur_flmc
+yjbjb1 = create datastore
+yjbjb1.dataobject = "dw_bjb_xmhz_4";   yjbjb1.settransobject(sqlca);   yjbjb1cnt=yjbjb1.retrieve(curbjdbh)
+cur_qjflnum = 0 ;currow1 = 1; currow2 = 1
+for i = 1 to yjbjb1cnt
+	   cur_ggxh = yjbjb1.object.x_ggxh[i];cur_sccj = yjbjb1.object.x_sccj[i];cur_key_ry = yjbjb1.object.x_key_ry[i]
+		SELECT top 1 BJB_XMYJB.x_qjmc  , BJB_XMYJB.X_flbh
+             INTO :cur_qjmc ,:cur_flbh  FROM BJB_XMYJB  
+              WHERE ( BJB_XMYJB.fabh = :curbjdbh ) AND    ( BJB_XMYJB.x_ggxh =:cur_ggxh  ) AND  
+                    ( BJB_XMYJB.x_sccj = :cur_sccj ) AND   ( BJB_XMYJB.x_key_ry = :cur_key_ry ) 
+				  ORDER BY BJB_XMYJB.X_flbh DESC   using sqlca;
+      if isnull(cur_qjmc) then	cur_qjmc = "";
+		if isnull(cur_flbh) then	cur_flbh = "";
+		yjbjb1.object.x_mc[i] = cur_qjmc;yjbjb1.object.x_flbh[i] = cur_flbh;
+next
+yjbjb1.update()
+if sqlca.sqlcode <> 0 then
+	messagebox("错误","项目器件分类汇总表生成失败!");  rollback using sqlca;destroy yjbjb1;st_3.visible = false;return
+else
+	commit using sqlca;destroy yjbjb1;
+end if
+//////////////////////////////////////项目元件分类统计2222222222222222222222222222222222//
+yjbjb1 = create datastore
+yjbjb1.dataobject = "dw_bjb_xmhz_5";   yjbjb1.settransobject(sqlca);   yjbjb1cnt=yjbjb1.retrieve(1)
+if yjbjb1cnt <= 0 then
+	messagebox("错误","项目器件分类汇总表生成失败!");destroy yjbjb1;  rollback using sqlca;st_3.visible = false;return
+end if
+string hzflbh
+DEC cur_zsl,cur_zje,cur_bcg_sl,z_zsl,z_zje,z_bcg_sl
+cur_flbh = left(yjbjb1.object.x_bh[1],4);cur_flmc = yjbjb1.object.x_mc[1]
+cur_zsl = 0;cur_zje = 0;cur_bcg_sl = 0;z_zsl = 0;z_zje = 0;z_bcg_sl = 0
+for i = 2 to yjbjb1cnt
+	  if left(yjbjb1.object.x_bh[i],4) =  cur_flbh then
+		  if isnull(yjbjb1.object.x_flbh[i]) or yjbjb1.object.x_flbh[i] = "" then
+		  else
+			  hzflbh = trim(yjbjb1.object.x_flbh[i]) + "%"
+			  UPDATE BJB_XMYJHZ  SET x_hzjb = :cur_flbh  WHERE ( BJB_XMYJHZ.fabh = :curbjdbh ) AND  ( BJB_XMYJHZ.x_flbh like :hzflbh )   
+				 using sqlca;
+			  if sqlca.sqlcode <> 0 then
+	            messagebox("错误","项目器件分类汇总表生成失败!");destroy yjbjb1;  rollback using sqlca;st_3.visible = false;return
+				else		  
+					commit using sqlca;
+			  end if
+			  SELECT sum(BJB_XMYJHZ.x_sl), sum(BJB_XMYJHZ.x_je), sum(BJB_XMYJHZ.x_bcg_sl)  
+             INTO :cur_zsl,:cur_zje,:cur_bcg_sl  FROM BJB_XMYJHZ  
+             WHERE ( BJB_XMYJHZ.fabh = :curbjdbh ) AND  ( BJB_XMYJHZ.x_flbh like :hzflbh )   
+             using sqlca;
+           if isnull(cur_zsl) then cur_zsl = 0 ;
+			  if isnull(cur_zje) then cur_zje = 0 ;
+			  if isnull(cur_bcg_sl) then cur_bcg_sl = 0 ;
+			  z_zsl = z_zsl + cur_zsl;z_zje = z_zje + cur_zje;z_bcg_sl = z_bcg_sl + cur_bcg_sl
+		  end if
+   else
+		 insert into bjb_xmhz (fabh,x_flbh,x_ggxh,x_sccj,x_key_ry,x_mc,x_sl,x_je,x_bcg_sl,x_hzjb)
+	                   values( :curbjdbh,"","","","",:cur_flmc,:z_zsl,:z_zje,:z_bcg_sl,:cur_flbh)
+			             using sqlca;
+		 if sqlca.sqlcode <> 0 then
+	        messagebox("错误","项目器件分类汇总表生成失败!");destroy yjbjb1;  rollback using sqlca;st_3.visible = false;return
+		  else
+			  commit using sqlca;
+		 end if	 
+		cur_flbh = left(yjbjb1.object.x_bh[i],4);cur_flmc = yjbjb1.object.x_mc[i]
+      cur_zsl = 0;cur_zje = 0;cur_bcg_sl = 0; z_zsl = 0;z_zje = 0;z_bcg_sl = 0
+   end if
+next
+insert into bjb_xmhz (fabh,x_flbh,x_ggxh,x_sccj,x_key_ry,x_mc,x_sl,x_je,x_bcg_sl,x_hzjb)
+	values( :curbjdbh,"","","","",:cur_flmc,:z_zsl,:z_zje,:z_bcg_sl,:cur_flbh)
+	using sqlca;
+if sqlca.sqlcode <> 0 then
+	  messagebox("错误","项目器件分类汇总表生成失败!");destroy yjbjb1;  rollback using sqlca;st_3.visible = false;return
+else
+	 commit using sqlca;
+end if
+ ////////处理未知分类
+ cur_flbh = string(long(cur_flbh) + 1,"0000"); cur_flmc = "未知分类"
+ SELECT sum(BJB_XMYJHZ.x_sl), sum(BJB_XMYJHZ.x_je), sum(BJB_XMYJHZ.x_bcg_sl)  
+     INTO :cur_zsl,:cur_zje,:cur_bcg_sl
+     FROM BJB_XMYJHZ WHERE ( BJB_XMYJHZ.fabh = :curbjdbh ) AND  (( BJB_XMYJHZ.x_flbh ="" )    or (  BJB_XMYJHZ.x_hzjb = ""))
+     using sqlca;
+ if isnull(cur_zsl) then cur_zsl = 0;
+ if isnull(cur_zje) then cur_zje = 0;
+ if isnull(cur_bcg_sl) then  cur_bcg_sl = 0;
+ if cur_zsl> 0 or cur_zje > 0 or cur_bcg_sl > 0 then
+	 insert into bjb_xmhz (fabh,x_flbh,x_ggxh,x_sccj,x_key_ry,x_mc,x_sl,x_je,x_bcg_sl,x_hzjb)
+	    values( :curbjdbh,"","","","",:cur_flmc,:cur_zsl,:cur_zje,:cur_bcg_sl,:cur_flbh)
+	    using sqlca;
+	 if sqlca.sqlcode <> 0 then
+	     messagebox("错误","项目器件分类汇总表生成失败!");destroy yjbjb1;  rollback using sqlca;st_3.visible = false;return
+	  else
+		commit using sqlca;
+	 end if
+ end if
+ UPDATE BJB_XMYJHZ  SET x_hzjb = :cur_flbh   
+      WHERE  ( BJB_XMYJHZ.fabh = :curbjdbh ) AND (( BJB_XMYJHZ.x_flbh ="" )    or (  BJB_XMYJHZ.x_hzjb = ""))
+		using sqlca;
+ if sqlca.sqlcode <> 0 then
+	  messagebox("错误","项目器件分类汇总表生成失败!");destroy yjbjb1;  rollback using sqlca;st_3.visible = false;return
+ end if
+ commit using sqlca;destroy yjbjb1;
+ messagebox("恭喜","器件分类汇总成功!");  st_3.visible = false;
+ num = fab.retrieve(curbjdbh)
+ loadfamx(num)
+ dw_1.retrieve(curbjdbh,curbjxbh ,int(len(curbjxbh )/4) +1 )//参数:方案号，项编码，项级别
+ commit using sqlca;

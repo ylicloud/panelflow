@@ -1,0 +1,221 @@
+@model PanelFlow.Web.Controllers.CustomerEditViewModel
+@{
+    ViewData["Title"] = "编辑客户";
+    var modelErrors = ViewData.ModelState.Values
+        .SelectMany(v => v.Errors)
+        .Select(e => e.ErrorMessage)
+        .Where(m => !string.IsNullOrWhiteSpace(m))
+        .Distinct()
+        .ToList();
+}
+
+@if (TempData["SuccessMessage"] != null)
+{
+    <div class="alert alert-success py-2 small alert-dismissible fade show">
+        @TempData["SuccessMessage"]
+        <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="alert"></button>
+    </div>
+}
+@if (TempData["ErrorMessage"] != null)
+{
+    <div class="alert alert-danger py-2 small alert-dismissible fade show">
+        @TempData["ErrorMessage"]
+        <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="alert"></button>
+    </div>
+}
+else if (modelErrors.Count > 0)
+{
+    <div class="alert alert-danger py-2 small alert-dismissible fade show">
+        @if (modelErrors.Count == 1)
+        {
+            @modelErrors[0]
+        }
+        else
+        {
+            <ul class="mb-0 ps-3">
+                @foreach (var error in modelErrors)
+                {
+                    <li>@error</li>
+                }
+            </ul>
+        }
+        <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="alert"></button>
+    </div>
+}
+
+<div class="row g-3">
+    <div class="col-xl-7">
+        <div class="oa-card">
+            <h5 class="fw-bold mb-4"><i class="bi bi-pencil-square me-2"></i>编辑客户</h5>
+
+            <form asp-action="Edit" method="post">
+                @Html.AntiForgeryToken()
+
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label asp-for="CompanyNo" class="form-label fw-semibold"></label>
+                        <input asp-for="CompanyNo" class="form-control" maxlength="10" readonly />
+                        <span asp-validation-for="CompanyNo" class="text-danger small"></span>
+                    </div>
+                    <div class="col-md-6">
+                        <label asp-for="CompanyName" class="form-label fw-semibold"></label>
+                        <input asp-for="CompanyName" class="form-control" maxlength="50" />
+                        <span asp-validation-for="CompanyName" class="text-danger small"></span>
+                    </div>
+                    <div class="col-md-6">
+                        <label asp-for="Alias" class="form-label fw-semibold"></label>
+                        <input asp-for="Alias" class="form-control" maxlength="10" />
+                        <span asp-validation-for="Alias" class="text-danger small"></span>
+                    </div>
+                    <div class="col-md-6">
+                        <label asp-for="Contact" class="form-label fw-semibold"></label>
+                        <input asp-for="Contact" class="form-control" readonly />
+                        <div class="form-text">此字段为旧系统默认联系人镜像，由下方联系人维护自动回写。</div>
+                    </div>
+                    <div class="col-md-6">
+                        <label asp-for="Phone" class="form-label fw-semibold"></label>
+                        <input asp-for="Phone" class="form-control" readonly />
+                        <div class="form-text">此字段为旧系统默认联系电话镜像。</div>
+                    </div>
+                    <div class="col-12">
+                        <label asp-for="Remark" class="form-label fw-semibold"></label>
+                        <textarea asp-for="Remark" class="form-control" rows="3" maxlength="100"></textarea>
+                        <span asp-validation-for="Remark" class="text-danger small"></span>
+                    </div>
+                </div>
+
+                <div class="d-flex gap-2 mt-4">
+                    <button type="submit" class="btn btn-primary flex-fill py-2 fw-semibold">
+                        <i class="bi bi-check-lg me-1"></i>保存客户
+                    </button>
+                    <a href="@Url.Action("Index")" class="btn btn-outline-secondary py-2 fw-semibold">返回</a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="col-xl-5">
+        <div class="oa-card">
+            <h5 class="fw-bold mb-3"><i class="bi bi-people me-2"></i>新增联系人</h5>
+            <form asp-action="AddContact" method="post">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="CompanyNo" value="@Model.CompanyNo" />
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label fw-semibold">联系人</label>
+                        <input name="ContactName" value="@Model.NewContact.ContactName" class="form-control" maxlength="100" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-semibold">联系电话</label>
+                        <input name="Phone" value="@Model.NewContact.Phone" class="form-control" maxlength="40" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-semibold">邮箱</label>
+                        <input name="Email" value="@Model.NewContact.Email" class="form-control" maxlength="100" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-semibold">职位</label>
+                        <input name="Title" value="@Model.NewContact.Title" class="form-control" maxlength="50" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-semibold">排序</label>
+                        <input name="SortNo" value="@Model.NewContact.SortNo" class="form-control" />
+                    </div>
+                    <div class="col-md-6 d-flex align-items-end">
+                        <div class="form-check mb-2">
+                            <input type="checkbox" name="IsEnabled" value="true" class="form-check-input"
+                                   checked="@Model.NewContact.IsEnabled" />
+                            <input type="hidden" name="IsEnabled" value="false" />
+                            <label class="form-check-label">启用</label>
+                        </div>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary mt-3 w-100">
+                    <i class="bi bi-plus-lg me-1"></i>新增联系人
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="oa-card mt-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="fw-bold mb-0"><i class="bi bi-person-lines-fill me-2"></i>联系人列表</h5>
+        <span class="small text-muted">第一个联系人自动成为默认联系人；默认联系人会同步回旧系统字段。</span>
+    </div>
+
+    @if (Model.Contacts.Count == 0)
+    {
+        <div class="text-muted small">暂无联系人，请先新增。</div>
+    }
+    else
+    {
+        foreach (var contact in Model.Contacts)
+        {
+            <div class="border rounded p-3 mb-3">
+                <form asp-action="UpdateContact" method="post">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="Id" value="@contact.Id" />
+                    <input type="hidden" name="CompanyNo" value="@contact.CompanyNo" />
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div class="fw-semibold">
+                            联系人 #@contact.Id
+                            @if (contact.IsDefault)
+                            {
+                                <span class="badge text-bg-primary ms-2">默认</span>
+                            }
+                        </div>
+                        <div class="d-flex gap-2">
+                            @if (!contact.IsDefault)
+                            {
+                                <button type="submit" formaction="@Url.Action("SetDefaultContact")" formmethod="post"
+                                        name="id" value="@contact.Id"
+                                        class="btn btn-sm btn-outline-warning">
+                                    设为默认
+                                </button>
+                            }
+                            <button type="submit" class="btn btn-sm btn-outline-primary">保存</button>
+                            <button type="submit" formaction="@Url.Action("DeleteContact")" formmethod="post"
+                                    name="id" value="@contact.Id"
+                                    onclick="return confirm('确认删除该联系人吗？');"
+                                    class="btn btn-sm btn-outline-danger">
+                                删除
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold">联系人</label>
+                            <input name="ContactName" value="@contact.ContactName" class="form-control" maxlength="100" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold">联系电话</label>
+                            <input name="Phone" value="@contact.Phone" class="form-control" maxlength="40" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold">邮箱</label>
+                            <input name="Email" value="@contact.Email" class="form-control" maxlength="100" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold">职位</label>
+                            <input name="Title" value="@contact.Title" class="form-control" maxlength="50" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold">排序</label>
+                            <input name="SortNo" value="@contact.SortNo" class="form-control" />
+                        </div>
+                        <div class="col-md-4 d-flex align-items-end">
+                            <div class="form-check mb-2">
+                                <input type="checkbox" name="IsEnabled" value="true" class="form-check-input"
+                                       checked="@contact.IsEnabled" />
+                                <input type="hidden" name="IsEnabled" value="false" />
+                                <label class="form-check-label">启用</label>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        }
+    }
+</div>

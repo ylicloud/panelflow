@@ -1,0 +1,104 @@
+﻿@model PanelFlow.Web.Controllers.LoginViewModel
+@{
+    Layout = null;
+    ViewData["Title"] = "登录";
+}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes" />
+    <meta name="theme-color" content="#1e40af" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="PanelFlow" />
+    <link rel="manifest" href="~/manifest.webmanifest" />
+    <link rel="icon" href="~/icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="~/icons/icon.svg" />
+    <title>@ViewData["Title"] - PanelFlow</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="~/lib/bootstrap-icons/font/bootstrap-icons.min.css" />
+    <link rel="stylesheet" href="~/css/login.css" asp-append-version="true" />
+</head>
+<body class="oa-login-body">
+    <div class="oa-login-container">
+        <div class="oa-login-card shadow-lg">
+            <div class="oa-login-header text-center mb-4">
+                <div class="oa-login-logo mb-3">
+                    <i class="bi bi-lightning-charge-fill fs-1 text-primary"></i>
+                </div>
+                <h4 class="fw-bold text-dark">PanelFlow</h4>
+                <p class="text-muted small">控制柜生产管理系统</p>
+            </div>
+
+            <form asp-action="Login" method="post">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="returnUrl" value="@ViewBag.ReturnUrl" />
+
+                <div asp-validation-summary="ModelOnly" class="alert alert-danger py-2 small"></div>
+
+                <div class="mb-3">
+                    <label asp-for="UserName" class="form-label fw-semibold"></label>
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="bi bi-person"></i></span>
+                        <input asp-for="UserName" class="form-control" placeholder="请输入用户名"
+                               autocomplete="username" />
+                    </div>
+                    <span asp-validation-for="UserName" class="text-danger small"></span>
+                </div>
+
+                <div class="mb-4">
+                    <label asp-for="Password" class="form-label fw-semibold"></label>
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="bi bi-lock"></i></span>
+                        <input asp-for="Password" class="form-control" placeholder="请输入密码"
+                               autocomplete="current-password" />
+                    </div>
+                    <span asp-validation-for="Password" class="text-danger small"></span>
+                </div>
+
+                <button type="submit" class="btn btn-primary w-100 py-2 fw-semibold">
+                    <i class="bi bi-box-arrow-in-right me-1"></i>登录
+                </button>
+            </form>
+        </div>
+
+        <div class="oa-db-status text-center mt-3">
+            <small>
+                <i class="bi bi-database me-1"></i>
+                <span id="dbStatusIndicator" class="oa-db-checking">
+                    <i class="bi bi-hourglass-split me-1"></i>检测数据库连接中...
+                </span>
+            </small>
+            <div id="dbStatusDetail" class="oa-db-detail d-none"></div>
+        </div>
+    </div>
+
+    <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        fetch('@Url.Action("DbStatus", "Account")', { signal: AbortSignal.timeout(10000) })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                var el = document.getElementById('dbStatusIndicator');
+                var detail = document.getElementById('dbStatusDetail');
+                if (data.connected) {
+                    el.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i>数据库连接正常';
+                    el.className = 'oa-db-ok';
+                } else {
+                    el.innerHTML = '<i class="bi bi-x-circle-fill me-1"></i>数据库连接失败';
+                    el.className = 'oa-db-fail';
+                    if (data.error && detail) {
+                        detail.textContent = data.error;
+                        detail.className = 'oa-db-detail';
+                    }
+                }
+            })
+            .catch(function () {
+                var el = document.getElementById('dbStatusIndicator');
+                el.innerHTML = '<i class="bi bi-x-circle-fill me-1"></i>数据库检测超时';
+                el.className = 'oa-db-fail';
+            });
+    </script>
+</body>
+</html>
+

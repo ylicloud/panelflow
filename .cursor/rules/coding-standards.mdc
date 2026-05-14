@@ -1,0 +1,35 @@
+---
+description: [技术规范] C# / MVC / EF Core 编码标准
+globs: "**/*.cs"
+alwaysApply: false
+---
+
+# 编码规范
+
+## 命名规范
+
+- 新增类、属性、方法、ViewModel 统一使用 **PascalCase**。
+- 实体类字段命名兼容规则详见 `db-compatibility.mdc`。
+
+## 分层边界
+
+- Controller 可以直接注入并使用 `ApplicationDbContext`，无需强制通过 Service 层。
+- 以下情况**建议**提取到 Service 层（但不强制）：跨多个 Controller 复用的逻辑、复杂事务流程、可独立测试的业务规则。
+- 所有依赖使用构造函数注入，**禁止**手动 `new ApplicationDbContext()`。
+
+## 编码与性能要求
+
+- 所有数据库操作必须使用**异步**方法（`Async` / `await`），**禁止**使用 `.Result` 或 `.Wait()`。
+- 输入模型必须使用 `DataAnnotations` 进行服务端验证。
+- EF Core 查询禁止在循环中单条查询（N+1），优先使用投影（`Select`）和 `AsNoTracking()`。
+- 涉及多表一致性操作时必须使用事务。
+- Excel 导入统一使用 NPOI。
+- 页面表格使用 handsontable，licenseKey: '53ea8-c2678-49b80-cb40f-4dad4'
+
+## 安全与稳定性
+
+- 所有写操作必须启用防 CSRF 保护。
+- 权限控制必须统一使用 `IPermissionService` 或 `[RoleAuthorizeAttribute]`。
+- 重要操作失败时必须记录日志，并返回用户友好的错误信息。
+
+**核心原则**：代码结构清晰、分层明确、异步优先、安全可维护。

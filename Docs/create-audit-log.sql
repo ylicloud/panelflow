@@ -1,0 +1,25 @@
+IF OBJECT_ID(N'dbo.SYS_AUDIT_LOG', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.SYS_AUDIT_LOG
+    (
+        Id BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+        ActionType NVARCHAR(50) NOT NULL,
+        Module NVARCHAR(100) NOT NULL,
+        EntityName NVARCHAR(100) NULL,
+        EntityId NVARCHAR(100) NULL,
+        UserName NVARCHAR(50) NOT NULL,
+        DisplayName NVARCHAR(50) NULL,
+        RoleName NVARCHAR(50) NULL,
+        ClientIp VARCHAR(45) NULL,
+        UserAgent NVARCHAR(500) NULL,
+        IsSuccess BIT NOT NULL CONSTRAINT DF_SYS_AUDIT_LOG_IsSuccess DEFAULT(1),
+        ErrorMessage NVARCHAR(1000) NULL,
+        BeforeData NVARCHAR(MAX) NULL,
+        AfterData NVARCHAR(MAX) NULL,
+        CreatedAt DATETIME NOT NULL CONSTRAINT DF_SYS_AUDIT_LOG_CreatedAt DEFAULT(GETDATE())
+    );
+
+    CREATE INDEX IX_SYS_AUDIT_LOG_CreatedAt ON dbo.SYS_AUDIT_LOG(CreatedAt DESC);
+    CREATE INDEX IX_SYS_AUDIT_LOG_UserName ON dbo.SYS_AUDIT_LOG(UserName);
+    CREATE INDEX IX_SYS_AUDIT_LOG_ActionType ON dbo.SYS_AUDIT_LOG(ActionType);
+END;

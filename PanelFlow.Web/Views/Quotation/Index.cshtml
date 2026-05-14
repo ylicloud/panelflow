@@ -1,0 +1,275 @@
+@model PanelFlow.Web.Controllers.QuotationListViewModel
+@{
+    ViewData["Title"] = "报价单";
+    var currentUserName = (ViewData["CurrentUserName"] as string ?? string.Empty).Trim();
+
+    string GetStatusText(int status) => status switch
+    {
+        0 => "草稿",
+        1 => "(无内容)",
+        10 => "已成立",
+        _ => status.ToString()
+    };
+
+    bool IsEstablished(int status) => status == 10;
+
+    // Docs/technical-requirements/quotation.md §2：修改/删除/报价 均为 bjr=当前用户 且 dqzt≠10
+    bool CanShowRowActions(QuotationDto item) =>
+        !string.IsNullOrWhiteSpace(currentUserName)
+        && string.Equals(
+            (item.Quoter ?? string.Empty).Trim(),
+            currentUserName,
+            StringComparison.OrdinalIgnoreCase)
+        && item.CurrentStatus != 10;
+}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h5 class="fw-bold mb-0"><i class="bi bi-file-text me-2"></i>报价单</h5>
+    <div class="d-flex align-items-center gap-2">
+        <span class="small text-muted">共 @Model.TotalCount 条</span>
+        <a href="@Url.Action("Create")" class="btn btn-sm btn-primary">
+            <i class="bi bi-plus-lg me-1"></i>新建报价单
+        </a>
+    </div>
+</div>
+
+@if (TempData["SuccessMessage"] != null)
+{
+    <div class="alert alert-success py-2 small alert-dismissible fade show">
+        @TempData["SuccessMessage"]
+        <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="alert"></button>
+    </div>
+}
+@if (TempData["ErrorMessage"] != null)
+{
+    <div class="alert alert-danger py-2 small alert-dismissible fade show">
+        @TempData["ErrorMessage"]
+        <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="alert"></button>
+    </div>
+}
+
+<div class="oa-card mb-3">
+    <form method="get" asp-action="Index" class="row g-2 align-items-center">
+        <div class="col-md-5">
+            <input type="text" name="keyword" value="@Model.Keyword" class="form-control form-control-sm"
+                   placeholder="搜索报价单编号/名称/报价人/客户编号" />
+        </div>
+        <div class="col-md-2">
+            <select class="form-select form-select-sm" name="pageSize">
+                <option value="30" selected="@(Model.PageSize == 30)">30条/页</option>
+                <option value="50" selected="@(Model.PageSize == 50)">50条/页</option>
+                <option value="100" selected="@(Model.PageSize == 100)">100条/页</option>
+            </select>
+        </div>
+        <div class="col-md-3">
+            <div class="form-check mt-1">
+                <input class="form-check-input" type="checkbox" id="includeHistory" name="includeHistory" value="true"
+                       checked="@Model.IncludeHistory" />
+                <label class="form-check-label small text-muted" for="includeHistory">
+                    显示所有时间段（默认仅近2年）
+                </label>
+            </div>
+        </div>
+        <div class="col-auto">
+            <button type="submit" class="btn btn-sm btn-primary">
+                <i class="bi bi-search me-1"></i>查询
+            </button>
+            <a href="@Url.Action("Index")" class="btn btn-sm btn-outline-secondary ms-1">重置</a>
+        </div>
+        <div class="col-12 small text-muted">
+            当前第 @Model.Page / @Model.TotalPages 页
+        </div>
+    </form>
+</div>
+
+<div class="oa-card p-0 d-none d-md-block">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0 oa-table">
+            <thead>
+            <tr>
+                <th style="width: 70px;">序号</th>
+                <th>报价单编号</th>
+                <th>报价单名称</th>
+                <th>客户编号</th>
+                <th>客户名称</th>
+                <th>当前状态</th>
+                <th>报价人</th>
+                <th class="text-center" style="width: 200px;">操作</th>
+            </tr>
+            </thead>
+            <tbody>
+            @if (Model.Items.Count == 0)
+            {
+                <tr>
+                    <td colspan="8" class="text-center text-muted py-4">暂无报价单数据</td>
+                </tr>
+            }
+            else
+            {
+                for (var i = 0; i < Model.Items.Count; i++)
+                {
+                    var item = Model.Items[i];
+                    var statusText = GetStatusText(item.CurrentStatus);
+                    var canOperate = CanShowRowActions(item);
+                    <tr>
+                        <td>@(((Model.Page - 1) * Model.PageSize) + i + 1)</td>
+                        <td class="fw-semibold">
+                            <a href="@Url.Action("Details", new { id = item.QuotationNo })">@item.QuotationNo</a>
+                        </td>
+                        <td>@(string.IsNullOrWhiteSpace(item.QuotationName) ? "—" : item.QuotationName)</td>
+                        <td>@(string.IsNullOrWhiteSpace(item.CustomerNo) ? "—" : item.CustomerNo)</td>
+                        <td>@(string.IsNullOrWhiteSpace(item.CustomerName) ? "—" : item.CustomerName)</td>
+                        <td>
+                            @if (IsEstablished(item.CurrentStatus))
+                            {
+                                <span class="badge bg-success">@statusText</span>
+                            }
+                            else
+                            {
+                                @statusText
+                            }
+                        </td>
+                        <td>@(string.IsNullOrWhiteSpace(item.Quoter) ? "—" : item.Quoter)</td>
+                        <td class="text-center">
+                            @if (canOperate)
+                            {
+                                <a class="btn btn-sm btn-outline-primary py-0 px-2"
+                                   href="@Url.Action("Edit", new { id = item.QuotationNo })"
+                                   title="修改">
+                                    <i class="bi bi-pencil"></i>
+                                </a>
+                                <a class="btn btn-sm btn-outline-success py-0 px-2 ms-1"
+                                   href="@Url.Action("Price", new { id = item.QuotationNo })"
+                                   title="报价">
+                                    <i class="bi bi-currency-dollar"></i>
+                                </a>
+                                <a class="btn btn-sm btn-outline-info py-0 px-2 ms-1"
+                                   href="@Url.Action("ImportComponents", new { id = item.QuotationNo })"
+                                   title="导入excel元件">
+                                    <i class="bi bi-file-earmark-excel"></i>
+                                    <i class="bi bi-box-arrow-in-down ms-1"></i>
+                                </a>
+                                <form asp-action="Delete" method="post" class="d-inline"
+                                      onsubmit="return confirmDelete(this);"
+                                      data-quotation-no="@item.QuotationNo">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="id" value="@item.QuotationNo" />
+                                    <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-2 ms-1"
+                                            title="删除">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </form>
+                            }
+                            else
+                            {
+                                <span class="text-muted">—</span>
+                            }
+                        </td>
+                    </tr>
+                }
+            }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="d-md-none">
+    @if (Model.Items.Count == 0)
+    {
+        <div class="oa-card text-center text-muted">暂无报价单数据</div>
+    }
+    else
+    {
+        for (var i = 0; i < Model.Items.Count; i++)
+        {
+            var item = Model.Items[i];
+            var statusText = GetStatusText(item.CurrentStatus);
+            var canOperate = CanShowRowActions(item);
+            <div class="oa-card mb-2">
+                <div class="small text-muted">序号：@(((Model.Page - 1) * Model.PageSize) + i + 1)</div>
+                <div class="fw-semibold">
+                    <a href="@Url.Action("Details", new { id = item.QuotationNo })">@item.QuotationNo</a>
+                </div>
+                <div class="small text-muted">报价单名称：@(string.IsNullOrWhiteSpace(item.QuotationName) ? "—" : item.QuotationName)</div>
+                <div class="small text-muted">客户编号：@(string.IsNullOrWhiteSpace(item.CustomerNo) ? "—" : item.CustomerNo)</div>
+                <div class="small text-muted">客户名称：@(string.IsNullOrWhiteSpace(item.CustomerName) ? "—" : item.CustomerName)</div>
+                <div class="small text-muted">
+                    当前状态：
+                    @if (IsEstablished(item.CurrentStatus))
+                    {
+                        <span class="badge bg-success">@statusText</span>
+                    }
+                    else
+                    {
+                        @statusText
+                    }
+                </div>
+                <div class="small text-muted">报价人：@(string.IsNullOrWhiteSpace(item.Quoter) ? "—" : item.Quoter)</div>
+                @if (canOperate)
+                {
+                    <div class="mt-2 d-grid gap-2">
+                        <a class="btn btn-sm btn-outline-primary"
+                           href="@Url.Action("Edit", new { id = item.QuotationNo })">修改</a>
+                        <a class="btn btn-sm btn-outline-success"
+                           href="@Url.Action("Price", new { id = item.QuotationNo })">
+                            <i class="bi bi-currency-dollar me-1"></i>报价
+                        </a>
+                        <a class="btn btn-sm btn-outline-info"
+                           href="@Url.Action("ImportComponents", new { id = item.QuotationNo })">
+                            <i class="bi bi-file-earmark-excel me-1"></i>
+                            <i class="bi bi-box-arrow-in-down me-1"></i>导入excel元件
+                        </a>
+                        <form asp-action="Delete" method="post"
+                              onsubmit="return confirmDelete(this);"
+                              data-quotation-no="@item.QuotationNo">
+                            @Html.AntiForgeryToken()
+                            <input type="hidden" name="id" value="@item.QuotationNo" />
+                            <button type="submit" class="btn btn-sm btn-outline-danger w-100">删除</button>
+                        </form>
+                    </div>
+                }
+            </div>
+        }
+    }
+</div>
+
+@if (Model.TotalPages > 1)
+{
+    var prevPage = Model.Page > 1 ? Model.Page - 1 : 1;
+    var nextPage = Model.Page < Model.TotalPages ? Model.Page + 1 : Model.TotalPages;
+    <nav aria-label="报价单分页" class="mt-3">
+        <ul class="pagination pagination-sm mb-0 flex-wrap">
+            <li class="page-item @(Model.Page == 1 ? "disabled" : "")">
+                <a class="page-link" href="@Url.Action("Index", new { keyword = Model.Keyword, includeHistory = Model.IncludeHistory, page = 1, pageSize = Model.PageSize })">首页</a>
+            </li>
+            <li class="page-item @(Model.Page == 1 ? "disabled" : "")">
+                <a class="page-link" href="@Url.Action("Index", new { keyword = Model.Keyword, includeHistory = Model.IncludeHistory, page = prevPage, pageSize = Model.PageSize })">上一页</a>
+            </li>
+            @{
+                var start = Math.Max(1, Model.Page - 2);
+                var end = Math.Min(Model.TotalPages, Model.Page + 2);
+                for (var p = start; p <= end; p++)
+                {
+                    <li class="page-item @(p == Model.Page ? "active" : "")">
+                        <a class="page-link" href="@Url.Action("Index", new { keyword = Model.Keyword, includeHistory = Model.IncludeHistory, page = p, pageSize = Model.PageSize })">@p</a>
+                    </li>
+                }
+            }
+            <li class="page-item @(Model.Page == Model.TotalPages ? "disabled" : "")">
+                <a class="page-link" href="@Url.Action("Index", new { keyword = Model.Keyword, includeHistory = Model.IncludeHistory, page = nextPage, pageSize = Model.PageSize })">下一页</a>
+            </li>
+            <li class="page-item @(Model.Page == Model.TotalPages ? "disabled" : "")">
+                <a class="page-link" href="@Url.Action("Index", new { keyword = Model.Keyword, includeHistory = Model.IncludeHistory, page = Model.TotalPages, pageSize = Model.PageSize })">末页</a>
+            </li>
+        </ul>
+    </nav>
+}
+
+@section Scripts {
+    <script>
+        function confirmDelete(form) {
+            const quotationNo = form.dataset.quotationNo || "";
+            return confirm(`删除报价单 ${quotationNo} 后无法恢复，确认删除吗？`);
+        }
+    </script>
+}

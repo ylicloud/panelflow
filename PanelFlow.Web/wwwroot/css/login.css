@@ -1,0 +1,57 @@
+/* 登录页样式 */
+.oa-login-body {
+    min-height: 100vh;
+    background: linear-gradient(135deg, #1a2a6c, #2563eb, #1e40af);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.oa-login-container {
+    width: 100%;
+    max-width: 420px;
+    padding: 1rem;
+}
+
+.oa-login-card {
+    background: #ffffff;
+    border-radius: 16px;
+    padding: 2.5rem 2rem;
+}
+
+.oa-login-logo {
+    width: 64px;
+    height: 64px;
+    background: #eff6ff;
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto;
+}
+
+.oa-db-status {
+    font-size: 0.8rem;
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.oa-db-checking {
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.oa-db-ok {
+    color: #6eff8a;
+    font-weight: 600;
+}
+
+.oa-db-fail {
+    color: #ff6b6b;
+    font-weight: 600;
+}
+
+.oa-db-detail {
+    color: rgba(255, 255, 255, 0.65);
+    font-size: 0.7rem;
+    margin-top: 2px;
+    word-break: break-all;
+}

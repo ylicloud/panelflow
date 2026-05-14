@@ -1,0 +1,160 @@
+@model PanelFlow.Web.Controllers.AuditLogListViewModel
+@{
+    ViewData["Title"] = "审计日志";
+}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h5 class="fw-bold mb-0"><i class="bi bi-journal-text me-2"></i>审计日志</h5>
+    <span class="text-muted small">共 @Model.TotalCount 条</span>
+</div>
+
+<div class="oa-card mb-3">
+    <form method="get" class="row g-2 align-items-center">
+        <div class="col-12 col-md-5">
+            <input type="text"
+                   class="form-control form-control-sm"
+                   name="keyword"
+                   value="@Model.Keyword"
+                   placeholder="搜索：账号/姓名/操作类型/模块/实体ID" />
+        </div>
+        <div class="col-6 col-md-3">
+            <select class="form-select form-select-sm" name="success">
+                <option value="">全部结果</option>
+                <option value="1" selected="@(Model.Success == 1)">成功</option>
+                <option value="0" selected="@(Model.Success == 0)">失败</option>
+            </select>
+        </div>
+        <div class="col-6 col-md-2">
+            <button type="submit" class="btn btn-primary btn-sm w-100">
+                <i class="bi bi-search me-1"></i>筛选
+            </button>
+        </div>
+        <div class="col-12 col-md-2">
+            <a class="btn btn-outline-secondary btn-sm w-100" href="@Url.Action("AuditLogs")">重置</a>
+        </div>
+    </form>
+</div>
+
+<div class="oa-card d-none d-md-block p-0">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0 oa-table">
+            <thead>
+                <tr>
+                    <th style="min-width:130px;">时间</th>
+                    <th style="min-width:120px;">操作人</th>
+                    <th style="min-width:120px;">操作类型</th>
+                    <th style="min-width:100px;">模块</th>
+                    <th style="min-width:140px;">对象</th>
+                    <th class="text-center" style="width:90px;">结果</th>
+                    <th style="min-width:140px;">IP</th>
+                    <th style="min-width:180px;">错误信息</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (Model.Items.Count == 0)
+                {
+                    <tr>
+                        <td colspan="8" class="text-center text-muted py-4">暂无日志</td>
+                    </tr>
+                }
+                else
+                {
+                    @foreach (var item in Model.Items)
+                    {
+                        <tr>
+                            <td class="small text-nowrap">@item.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                            <td class="small">
+                                <div class="fw-semibold">@item.UserName</div>
+                                <div class="text-muted">@(string.IsNullOrWhiteSpace(item.DisplayName) ? "—" : item.DisplayName)</div>
+                            </td>
+                            <td class="small">@item.ActionType</td>
+                            <td class="small">@item.Module</td>
+                            <td class="small">
+                                @if (string.IsNullOrWhiteSpace(item.EntityName) && string.IsNullOrWhiteSpace(item.EntityId))
+                                {
+                                    <span class="text-muted">—</span>
+                                }
+                                else
+                                {
+                                    <span>@item.EntityName / @item.EntityId</span>
+                                }
+                            </td>
+                            <td class="text-center">
+                                @if (item.IsSuccess)
+                                {
+                                    <span class="badge bg-success bg-opacity-10 text-success">成功</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-danger bg-opacity-10 text-danger">失败</span>
+                                }
+                            </td>
+                            <td class="small text-muted">@(string.IsNullOrWhiteSpace(item.ClientIp) ? "—" : item.ClientIp)</td>
+                            <td class="small text-muted">@(string.IsNullOrWhiteSpace(item.ErrorMessage) ? "—" : item.ErrorMessage)</td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="d-md-none">
+    @if (Model.Items.Count == 0)
+    {
+        <div class="oa-card text-muted text-center py-4">暂无日志</div>
+    }
+    else
+    {
+        @foreach (var item in Model.Items)
+        {
+            <div class="oa-card mb-2">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="fw-semibold">@item.ActionType <span class="text-muted">(@item.Module)</span></div>
+                        <div class="small text-muted">@item.UserName / @(string.IsNullOrWhiteSpace(item.DisplayName) ? "—" : item.DisplayName)</div>
+                        <div class="small text-muted">@item.CreatedAt.ToString("MM-dd HH:mm:ss")</div>
+                        <div class="small text-muted">IP: @(string.IsNullOrWhiteSpace(item.ClientIp) ? "—" : item.ClientIp)</div>
+                        @if (!string.IsNullOrWhiteSpace(item.ErrorMessage))
+                        {
+                            <div class="small text-danger mt-1">@item.ErrorMessage</div>
+                        }
+                    </div>
+                    @if (item.IsSuccess)
+                    {
+                        <span class="badge bg-success bg-opacity-10 text-success">成功</span>
+                    }
+                    else
+                    {
+                        <span class="badge bg-danger bg-opacity-10 text-danger">失败</span>
+                    }
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@if (Model.TotalPages > 1)
+{
+    <nav class="mt-3" aria-label="Audit log pages">
+        <ul class="pagination pagination-sm mb-0 flex-wrap">
+            <li class="page-item @(Model.Page <= 1 ? "disabled" : "")">
+                <a class="page-link"
+                   href="@Url.Action("AuditLogs", new { keyword = Model.Keyword, success = Model.Success, page = Model.Page - 1 })">
+                    上一页
+                </a>
+            </li>
+
+            <li class="page-item disabled">
+                <span class="page-link">第 @Model.Page / @Model.TotalPages 页</span>
+            </li>
+
+            <li class="page-item @(Model.Page >= Model.TotalPages ? "disabled" : "")">
+                <a class="page-link"
+                   href="@Url.Action("AuditLogs", new { keyword = Model.Keyword, success = Model.Success, page = Model.Page + 1 })">
+                    下一页
+                </a>
+            </li>
+        </ul>
+    </nav>
+}

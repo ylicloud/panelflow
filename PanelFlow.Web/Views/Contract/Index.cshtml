@@ -1,0 +1,207 @@
+@model PanelFlow.Web.Controllers.ContractListViewModel
+@{
+    ViewData["Title"] = "制造合同";
+}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h5 class="fw-bold mb-0"><i class="bi bi-file-earmark-check me-2"></i>制造合同</h5>
+    <a href="@Url.Action("Create")" class="btn btn-sm btn-primary">
+        <i class="bi bi-plus-lg me-1"></i>录入合同
+    </a>
+</div>
+
+@if (TempData["SuccessMessage"] != null)
+{
+    <div class="alert alert-success py-2 small alert-dismissible fade show">
+        @TempData["SuccessMessage"]
+        <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="alert"></button>
+    </div>
+}
+@if (TempData["ErrorMessage"] != null)
+{
+    <div class="alert alert-danger py-2 small alert-dismissible fade show">
+        @TempData["ErrorMessage"]
+        <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="alert"></button>
+    </div>
+}
+
+<div class="oa-card mb-3">
+    <form method="get" asp-action="Index" class="row g-2 align-items-center">
+        <div class="col-md-5">
+            <input type="text" name="keyword" value="@Model.Keyword" class="form-control form-control-sm"
+                   placeholder="输入合同编号/项目名称/合同内容搜索" />
+        </div>
+        <div class="col-md-2">
+            <select class="form-select form-select-sm" name="pageSize">
+                <option value="30" selected="@(Model.PageSize == 30)">30条/页</option>
+                <option value="50" selected="@(Model.PageSize == 50)">50条/页</option>
+                <option value="100" selected="@(Model.PageSize == 100)">100条/页</option>
+            </select>
+        </div>
+        <div class="col-md-3">
+            <div class="form-check mt-1">
+                <input class="form-check-input" type="checkbox" id="includeHistory" name="includeHistory" value="true"
+                       checked="@Model.IncludeHistory" />
+                <label class="form-check-label small text-muted" for="includeHistory">
+                    显示全部历史合同（默认仅近3年）
+                </label>
+            </div>
+        </div>
+        <div class="col-auto">
+            <button type="submit" class="btn btn-sm btn-primary">
+                <i class="bi bi-search me-1"></i>查询
+            </button>
+            <a href="@Url.Action("Index")" class="btn btn-sm btn-outline-secondary ms-1">重置</a>
+        </div>
+        <div class="col-12 small text-muted">
+            共 @Model.TotalCount 条，当前第 @Model.Page / @Model.TotalPages 页
+        </div>
+    </form>
+</div>
+
+<div class="oa-card p-0 d-none d-md-block">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0 oa-table">
+            <thead>
+            <tr>
+                <th>方案编号</th>
+                <th>项目名称</th>
+                <th>合同编号</th>
+                <th>负责人</th>
+                <th>签订时间</th>
+                <th>交货时间</th>
+                <th class="text-end">合同总金额</th>
+                <th class="text-center">当前状态</th>
+                <th class="text-center" style="width: 140px;">操作</th>
+            </tr>
+            </thead>
+            <tbody>
+            @if (Model.Items.Count == 0)
+            {
+                <tr>
+                    <td colspan="9" class="text-center text-muted py-4">暂无合同数据</td>
+                </tr>
+            }
+            else
+            {
+                foreach (var item in Model.Items)
+                {
+                    <tr>
+                        <td>@(string.IsNullOrWhiteSpace(item.QuotationPlanNo) ? "—" : item.QuotationPlanNo)</td>
+                        <td>@item.ProjectName</td>
+                        <td class="fw-semibold">@item.ContractNo</td>
+                        <td>@item.Owner</td>
+                        <td>@(item.SignDate?.ToString("yyyy-MM-dd") ?? "—")</td>
+                        <td>@(item.DeliveryDate?.ToString("yyyy-MM-dd") ?? "—")</td>
+                        <td class="text-end">@item.TotalAmount.ToString("N2")</td>
+                        <td class="text-center">@item.CurrentStatus</td>
+                        <td class="text-center">
+                            <a class="btn btn-sm btn-outline-primary py-0 px-2"
+                               href="@Url.Action("Edit", new { id = item.ContractNo })">
+                                <i class="bi bi-pencil"></i>
+                            </a>
+                            <form asp-action="Delete" method="post" class="d-inline"
+                                  onsubmit="return confirmDelete(this);"
+                                  data-contract-no="@item.ContractNo"
+                                  data-legacy-contract-no="@item.LegacyContractNo"
+                                  data-project-name="@item.ProjectName">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="id" value="@item.ContractNo" />
+                                <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-2 ms-1">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                }
+            }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="d-md-none">
+    @if (Model.Items.Count == 0)
+    {
+        <div class="oa-card text-center text-muted">暂无合同数据</div>
+    }
+    else
+    {
+        foreach (var item in Model.Items)
+        {
+            <div class="oa-card mb-2">
+                <div class="small text-muted">方案编号：@(string.IsNullOrWhiteSpace(item.QuotationPlanNo) ? "—" : item.QuotationPlanNo)</div>
+                <div class="fw-semibold mt-1">@item.ProjectName</div>
+                <div class="small text-muted mt-1">合同编号：@item.ContractNo</div>
+                <div class="small text-muted">负责人：@item.Owner</div>
+                <div class="small text-muted">签订：@(item.SignDate?.ToString("yyyy-MM-dd") ?? "—")</div>
+                <div class="small text-muted">交货：@(item.DeliveryDate?.ToString("yyyy-MM-dd") ?? "—")</div>
+                <div class="small text-muted">金额：@item.TotalAmount.ToString("N2")</div>
+                <div class="small text-muted">状态：@item.CurrentStatus</div>
+                <div class="mt-2 d-flex gap-2">
+                    <a class="btn btn-sm btn-outline-primary flex-fill"
+                       href="@Url.Action("Edit", new { id = item.ContractNo })">
+                        编辑
+                    </a>
+                    <form asp-action="Delete" method="post" class="flex-fill"
+                          onsubmit="return confirmDelete(this);"
+                          data-contract-no="@item.ContractNo"
+                          data-legacy-contract-no="@item.LegacyContractNo"
+                          data-project-name="@item.ProjectName">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="id" value="@item.ContractNo" />
+                        <button type="submit" class="btn btn-sm btn-outline-danger w-100">删除</button>
+                    </form>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@if (Model.TotalPages > 1)
+{
+    var prevPage = Model.Page > 1 ? Model.Page - 1 : 1;
+    var nextPage = Model.Page < Model.TotalPages ? Model.Page + 1 : Model.TotalPages;
+    <nav aria-label="合同分页" class="mt-3">
+        <ul class="pagination pagination-sm mb-0 flex-wrap">
+            <li class="page-item @(Model.Page == 1 ? "disabled" : "")">
+                <a class="page-link" href="@Url.Action("Index", new { keyword = Model.Keyword, includeHistory = Model.IncludeHistory, page = 1, pageSize = Model.PageSize })">首页</a>
+            </li>
+            <li class="page-item @(Model.Page == 1 ? "disabled" : "")">
+                <a class="page-link" href="@Url.Action("Index", new { keyword = Model.Keyword, includeHistory = Model.IncludeHistory, page = prevPage, pageSize = Model.PageSize })">上一页</a>
+            </li>
+            @{
+                var start = Math.Max(1, Model.Page - 2);
+                var end = Math.Min(Model.TotalPages, Model.Page + 2);
+                for (var p = start; p <= end; p++)
+                {
+                    <li class="page-item @(p == Model.Page ? "active" : "")">
+                        <a class="page-link" href="@Url.Action("Index", new { keyword = Model.Keyword, includeHistory = Model.IncludeHistory, page = p, pageSize = Model.PageSize })">@p</a>
+                    </li>
+                }
+            }
+            <li class="page-item @(Model.Page == Model.TotalPages ? "disabled" : "")">
+                <a class="page-link" href="@Url.Action("Index", new { keyword = Model.Keyword, includeHistory = Model.IncludeHistory, page = nextPage, pageSize = Model.PageSize })">下一页</a>
+            </li>
+            <li class="page-item @(Model.Page == Model.TotalPages ? "disabled" : "")">
+                <a class="page-link" href="@Url.Action("Index", new { keyword = Model.Keyword, includeHistory = Model.IncludeHistory, page = Model.TotalPages, pageSize = Model.PageSize })">末页</a>
+            </li>
+        </ul>
+    </nav>
+}
+
+@section Scripts {
+    <script>
+        function confirmDelete(form) {
+            const contractNo = form.dataset.contractNo || "";
+            const legacyContractNo = form.dataset.legacyContractNo || "";
+            const projectName = form.dataset.projectName || "";
+            const info = `<${contractNo}|${legacyContractNo}|${projectName}|>`;
+            const first = confirm(`是否删除该合同 ${info} ?`);
+            if (!first) {
+                return false;
+            }
+            return confirm(`请再次确认是否删除该合同 ${info} ????`);
+        }
+    </script>
+}

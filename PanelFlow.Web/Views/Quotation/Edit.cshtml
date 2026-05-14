@@ -1,0 +1,149 @@
+@model PanelFlow.Web.Controllers.QuotationEditViewModel
+@{
+    ViewData["Title"] = "编辑报价单";
+}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h5 class="fw-bold mb-0"><i class="bi bi-pencil-square me-2"></i>编辑报价单</h5>
+    <a href="@Url.Action("Index")" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-arrow-left me-1"></i>返回列表
+    </a>
+</div>
+
+<div class="oa-card">
+    <form asp-action="Edit" method="post">
+        @Html.AntiForgeryToken()
+        <div asp-validation-summary="ModelOnly" class="text-danger small mb-2"></div>
+        <input asp-for="QuotationNo" type="hidden" />
+
+        <div class="row g-3">
+            <div class="col-md-4">
+                <label class="form-label">报价单编号</label>
+                <input class="form-control form-control-sm" value="@Model.QuotationNo" readonly />
+            </div>
+            <div class="col-md-4">
+                <label asp-for="QuotationName" class="form-label"></label>
+                <input asp-for="QuotationName" class="form-control form-control-sm" />
+                <span asp-validation-for="QuotationName" class="text-danger small"></span>
+            </div>
+
+            <div class="col-12">
+                <label class="form-label">客户关键字搜索</label>
+                <div class="input-group input-group-sm">
+                    <input type="text" id="customerKeyword" class="form-control"
+                           placeholder="输入公司名称或别名关键字（仅检索已填写别名的客户）" />
+                    <button class="btn btn-outline-secondary" type="button" id="customerSearchBtn">搜索</button>
+                </div>
+                <div id="customerSearchHint" class="small text-muted mt-1">请输入关键字后选择客户</div>
+                <div id="customerSearchResult" class="list-group mt-2 d-none"></div>
+            </div>
+
+            <div class="col-md-4">
+                <label asp-for="CustomerNo" class="form-label"></label>
+                <input asp-for="CustomerNo" class="form-control form-control-sm" readonly />
+                <span asp-validation-for="CustomerNo" class="text-danger small"></span>
+            </div>
+            <div class="col-md-4">
+                <label asp-for="CustomerName" class="form-label"></label>
+                <input asp-for="CustomerName" class="form-control form-control-sm" readonly />
+                <span asp-validation-for="CustomerName" class="text-danger small"></span>
+            </div>
+            <div class="col-md-4">
+                <label asp-for="CustomerAlias" class="form-label"></label>
+                <input asp-for="CustomerAlias" class="form-control form-control-sm" readonly />
+                <span asp-validation-for="CustomerAlias" class="text-danger small"></span>
+            </div>
+            <div class="col-md-4">
+                <label asp-for="Remark" class="form-label"></label>
+                <input asp-for="Remark" class="form-control form-control-sm" />
+                <span asp-validation-for="Remark" class="text-danger small"></span>
+            </div>
+        </div>
+
+        <div class="mt-3 d-flex gap-2">
+            <button type="submit" class="btn btn-sm btn-primary">
+                <i class="bi bi-check2 me-1"></i>保存修改
+            </button>
+            <a href="@Url.Action("Index")" class="btn btn-sm btn-outline-secondary">取消</a>
+        </div>
+    </form>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+    <script>
+        (() => {
+            const keywordInput = document.getElementById("customerKeyword");
+            const searchBtn = document.getElementById("customerSearchBtn");
+            const hint = document.getElementById("customerSearchHint");
+            const resultBox = document.getElementById("customerSearchResult");
+            const companyNoInput = document.getElementById("CustomerNo");
+            const companyNameInput = document.getElementById("CustomerName");
+            const aliasInput = document.getElementById("CustomerAlias");
+
+            function setHint(text, isError = false) {
+                hint.textContent = text;
+                hint.className = isError ? "small text-danger mt-1" : "small text-muted mt-1";
+            }
+
+            function clearResult() {
+                resultBox.innerHTML = "";
+                resultBox.classList.add("d-none");
+            }
+
+            function chooseCustomer(item) {
+                companyNoInput.value = item.companyNo || "";
+                companyNameInput.value = item.companyName || "";
+                aliasInput.value = item.alias || "";
+                clearResult();
+                setHint(`已选择：${companyNameInput.value} (${aliasInput.value})`);
+            }
+
+            async function search() {
+                const keyword = (keywordInput.value || "").trim();
+                clearResult();
+                if (!keyword) {
+                    setHint("请输入搜索关键字", true);
+                    return;
+                }
+
+                setHint("搜索中...");
+                try {
+                    const url = `@Url.Action("SearchCustomers", "Quotation")?keyword=${encodeURIComponent(keyword)}`;
+                    const response = await fetch(url, { method: "GET" });
+                    if (!response.ok) {
+                        setHint("搜索失败，请稍后重试", true);
+                        return;
+                    }
+
+                    const list = await response.json();
+                    if (!Array.isArray(list) || list.length === 0) {
+                        setHint("未找到匹配客户", true);
+                        return;
+                    }
+
+                    list.forEach(item => {
+                        const button = document.createElement("button");
+                        button.type = "button";
+                        button.className = "list-group-item list-group-item-action";
+                        button.textContent = `${item.companyName} (${item.alias}) [${item.companyNo}]`;
+                        button.addEventListener("click", () => chooseCustomer(item));
+                        resultBox.appendChild(button);
+                    });
+                    resultBox.classList.remove("d-none");
+                    setHint(`找到 ${list.length} 条，请点击选择`);
+                } catch {
+                    setHint("搜索异常，请稍后重试", true);
+                }
+            }
+
+            searchBtn.addEventListener("click", search);
+            keywordInput.addEventListener("keydown", e => {
+                if (e.key === "Enter") {
+                    e.preventDefault();
+                    search();
+                }
+            });
+        })();
+    </script>
+}

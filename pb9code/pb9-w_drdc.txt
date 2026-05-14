@@ -1,0 +1,259 @@
+// 导入EXCEL文件到报价单, 按钮事件如下:
+OLEObject ExcelServer
+integer ExcelOK
+string file_fullname_excel,file_name_excel
+if fab.rowcount() > 0 then
+	messagebox("警告","该报价单已经有数据!,不能导入!!!")
+	return
+end if
+ExcelOK = getfileopenname("打开文件",file_fullname_excel,file_name_excel,"xls","EXCEL 文件(*.XLS),*.XLS")
+IF ExcelOK <> 1 THEN
+	 RETURN
+END IF
+ExcelServer = CREATE OLEObject
+ExcelOK = ExcelServer.ConnectToNewObject( "excel.application" )
+if excelok <> 0 then
+	messagebox("警告","EXCEL启动失败!,不能导入!!!")
+	DESTROY ExcelServer
+	return
+end if
+ExcelServer.Workbooks.Open(file_fullname_excel)
+ExcelServer.ActiveWorkBook.Sheets(1).Select
+ExcelServer.Application.Visible = TRUE 
+
+LONG I,J,K,curdy_xh
+string CURDY_MC,CURDY_BH
+DATETIME CUR_SJ
+BOOLEAN FLAG
+I = 1; J = 2; K = 1
+curdy_xh = 1; CURDY_MC = ExcelServer.ActiveSheet.Cells(2,2).value
+CUR_SJ = DATETIME(TODAY(),NOW())
+If IsNULL(CURDY_MC) Or CURDY_MC = "" Then
+       messagebox("警告", "EXCEL报价单格式出错！"); ExcelServer.DisconnectObject();return
+     Else //添加单元格式
+		 //11111111111111111
+		   CURDY_BH =  STRING(curdy_xh, "0000")
+         INSERT INTO BJB  
+                  ( fabh,  x_bm,   x_mc,  x_dw,  x_dj,  x_fdds,   x_sl,   x_bj_fdds,   
+                    x_bj_dj,   x_bjb_bj,   x_bjb_dj,   x_bjb_datetime,   x_bjb_fdds,   x_wzfy,   
+                    x_flbh,    x_ggxh,     x_sccj,     x_key_ry,         x_jsgsbh,     x_bz,   
+                    x_wzdh,    x_lx,       x_cgf )   
+			  VALUES ( :curbjdbh ,:CURDY_BH,:CURDY_MC,"",0,0,1,0,
+			           0,0,0,:CUR_SJ,0,0,
+						  "","","","",0,"",
+						  "",1,1) 
+			  USING SQLCA;
+       //22222222222222222222
+		   INSERT INTO BJB  
+                  ( fabh,  x_bm,   x_mc,  x_dw,  x_dj,  x_fdds,   x_sl,   x_bj_fdds,   
+                    x_bj_dj,   x_bjb_bj,   x_bjb_dj,   x_bjb_datetime,   x_bjb_fdds,   x_wzfy,   
+                    x_flbh,    x_ggxh,     x_sccj,     x_key_ry,         x_jsgsbh,     x_bz,   
+                    x_wzdh,    x_lx,       x_cgf )   
+			  VALUES ( :curbjdbh ,:CURDY_BH + "0001","器件","",0,0,1,0,
+			           0,0,0,:CUR_SJ,0,0,
+						  "","","","",0,"",
+						  "",1,1) 
+			  USING SQLCA;
+       //33333333333333333333
+          INSERT INTO BJB  
+                  ( fabh,  x_bm,   x_mc,  x_dw,  x_dj,  x_fdds,   x_sl,   x_bj_fdds,   
+                    x_bj_dj,   x_bjb_bj,   x_bjb_dj,   x_bjb_datetime,   x_bjb_fdds,   x_wzfy,   
+                    x_flbh,    x_ggxh,     x_sccj,     x_key_ry,         x_jsgsbh,     x_bz,   
+                    x_wzdh,    x_lx,       x_cgf )   
+			  VALUES ( :curbjdbh ,:CURDY_BH + "0002","辅料","",0,0,1,0,
+			           0,0,0,:CUR_SJ,0,0,
+						  "","","","",0,"",
+						  "",12,1) 
+			  USING SQLCA;
+        //44444444444444444444
+        INSERT INTO BJB  
+                  ( fabh,  x_bm,   x_mc,  x_dw,  x_dj,  x_fdds,   x_sl,   x_bj_fdds,   
+                    x_bj_dj,   x_bjb_bj,   x_bjb_dj,   x_bjb_datetime,   x_bjb_fdds,   x_wzfy,   
+                    x_flbh,    x_ggxh,     x_sccj,     x_key_ry,         x_jsgsbh,     x_bz,   
+                    x_wzdh,    x_lx,       x_cgf )   
+			  VALUES ( :curbjdbh ,:CURDY_BH + "0003","壳体","",0,0,1,0,
+			           0,0,0,:CUR_SJ,0,0,
+						  "","","","",0,"",
+						  "",13,1) 
+			  USING SQLCA;
+       //55555555555555555555
+       INSERT INTO BJB  
+                  ( fabh,  x_bm,   x_mc,  x_dw,  x_dj,  x_fdds,   x_sl,   x_bj_fdds,   
+                    x_bj_dj,   x_bjb_bj,   x_bjb_dj,   x_bjb_datetime,   x_bjb_fdds,   x_wzfy,   
+                    x_flbh,    x_ggxh,     x_sccj,     x_key_ry,         x_jsgsbh,     x_bz,   
+                    x_wzdh,    x_lx,       x_cgf )   
+			  VALUES ( :curbjdbh ,:CURDY_BH + "0004","安装","",0,0,1,0,
+			           0,0,0,:CUR_SJ,0,0,
+						  "","","","",0,"",
+						  "",14,1) 
+			  USING SQLCA;
+			 //        '66666666666666666666
+          INSERT INTO BJB  
+                  ( fabh,  x_bm,   x_mc,  x_dw,  x_dj,  x_fdds,   x_sl,   x_bj_fdds,   
+                    x_bj_dj,   x_bjb_bj,   x_bjb_dj,   x_bjb_datetime,   x_bjb_fdds,   x_wzfy,   
+                    x_flbh,    x_ggxh,     x_sccj,     x_key_ry,         x_jsgsbh,     x_bz,   
+                    x_wzdh,    x_lx,       x_cgf )   
+			  VALUES ( :curbjdbh ,:CURDY_BH + "0005","包装","",0,0,1,0,
+			           0,0,0,:CUR_SJ,0,0,
+						  "","","","",0,"",
+						  "",15,1) 
+			  USING SQLCA;   
+	End If
+	FLAG = Isnull(ExcelServer.ActiveSheet.Cells(J, 1).Value) And Isnull(ExcelServer.ActiveSheet.Cells(J, 2).Value) And Isnull(ExcelServer.ActiveSheet.Cells(J, 3).Value) And Isnull(ExcelServer.ActiveSheet.Cells(J, 4).Value) And Isnull(ExcelServer.ActiveSheet.Cells(J, 5).Value) And Isnull(ExcelServer.ActiveSheet.Cells(J, 6).Value) And Isnull(ExcelServer.ActiveSheet.Cells(J, 7).Value)
+   I = 0
+	string temp_str,str_1,str_2,str_3
+	
+	double dbl_1,dbl_2
+	any    dbcell
+	do While FLAG = False
+		IF NOT ISNULL( ExcelServer.ActiveSheet.Cells(J, 2).Value) THEN
+			   TEMP_STR = ExcelServer.ActiveSheet.Cells(J, 2).Value
+		END IF
+   
+      If TEMP_STR = CURDY_MC Or isnull( ExcelServer.ActiveSheet.Cells(J, 2).Value) Or TEMP_STR = "" Then
+              //同一单元
+              If isnull(ExcelServer.ActiveSheet.Cells(J, 3).Value) And isnull(ExcelServer.ActiveSheet.Cells(J, 4).Value) Then
+               Else
+                 I = I + 1
+                 //添加器件
+					  CURDY_BH =  STRING(curdy_xh, "0000") + "0001" + string(i,"0000")
+					  
+					  if isnull(ExcelServer.ActiveSheet.Cells(J, 3).Value) then
+						   str_1 = ""
+					   else
+							dbcell = ExcelServer.ActiveSheet.Cells(J, 3).Value
+						   if classname(dbcell) = "string" then
+								str_1 = trim(ExcelServer.ActiveSheet.Cells(J, 3).Value)
+							else
+								str_1 = string(ExcelServer.ActiveSheet.Cells(J, 3).Value)
+							end if
+					  end if
+					  if isnull(ExcelServer.ActiveSheet.Cells(J, 4).Value) then
+						   str_2 = ""
+					   else
+							dbcell = ExcelServer.ActiveSheet.Cells(J, 4).Value
+						   if classname(dbcell) = "string" then
+								str_2 = trim(ExcelServer.ActiveSheet.Cells(J, 4).Value)
+							else
+								str_2 = string(ExcelServer.ActiveSheet.Cells(J, 4).Value)
+							end if
+					  end if
+					  if isnull(ExcelServer.ActiveSheet.Cells(J, 5).Value) then
+						   dbl_1 = 0
+					   else
+							dbcell = ExcelServer.ActiveSheet.Cells(J, 5).Value
+						   if classname(dbcell) = "string" then
+								dbl_1 = 0
+							else
+								dbl_1 = ExcelServer.ActiveSheet.Cells(J, 5).Value
+							end if
+					  end if
+					  if isnull(ExcelServer.ActiveSheet.Cells(J, 6).Value) then
+						   dbl_2 = 0
+					   else
+							dbcell = ExcelServer.ActiveSheet.Cells(J, 6).Value
+						   if classname(dbcell) = "string" then
+								dbl_2 = 0
+							else
+								dbl_2 = ExcelServer.ActiveSheet.Cells(J, 6).Value
+							end if
+					  end if
+					  
+					  INSERT INTO BJB  
+                  ( fabh,  x_bm,   x_mc,  x_dw,  x_dj,  x_fdds,   x_sl,   x_bj_fdds,   
+                    x_bj_dj,   x_bjb_bj,   x_bjb_dj,   x_bjb_datetime,   x_bjb_fdds,   x_wzfy,   
+                    x_flbh,    x_ggxh,     x_sccj,     x_key_ry,         x_jsgsbh,     x_bz,   
+                    x_wzdh,    x_lx,       x_cgf )   
+			       VALUES ( :curbjdbh ,:CURDY_BH,:str_1,"",:dbl_1,0,:dbl_2,0,
+			                :dbl_1,:dbl_1,:dbl_1,:CUR_SJ,0,0,
+						  "",:str_2,"","",0,"",
+						  "",11,1) 
+			       USING SQLCA;
+              End If
+              J = J + 1
+              FLAG = Isnull(ExcelServer.ActiveSheet.Cells(J, 1).Value) And Isnull(ExcelServer.ActiveSheet.Cells(J, 2).Value) And Isnull(ExcelServer.ActiveSheet.Cells(J, 3).Value) And Isnull(ExcelServer.ActiveSheet.Cells(J, 4).Value) And Isnull(ExcelServer.ActiveSheet.Cells(J, 5).Value) And Isnull(ExcelServer.ActiveSheet.Cells(J, 6).Value) And Isnull(ExcelServer.ActiveSheet.Cells(J, 7).Value)
+        Else
+              curdy_xh = curdy_xh + 1; CURDY_MC = TEMP_STR
+              //更换单元
+              //添加单元格式
+				  //11111111111111111
+		        CURDY_BH =  STRING(curdy_xh, "0000")
+              INSERT INTO BJB  
+                  ( fabh,  x_bm,   x_mc,  x_dw,  x_dj,  x_fdds,   x_sl,   x_bj_fdds,   
+                    x_bj_dj,   x_bjb_bj,   x_bjb_dj,   x_bjb_datetime,   x_bjb_fdds,   x_wzfy,   
+                    x_flbh,    x_ggxh,     x_sccj,     x_key_ry,         x_jsgsbh,     x_bz,   
+                    x_wzdh,    x_lx,       x_cgf )   
+			       VALUES ( :curbjdbh ,:CURDY_BH,:CURDY_MC,"",0,0,1,0,
+			           0,0,0,:CUR_SJ,0,0,
+						  "","","","",0,"",
+						  "",1,1) 
+			       USING SQLCA;
+              //22222222222222222222
+		        INSERT INTO BJB  
+                  ( fabh,  x_bm,   x_mc,  x_dw,  x_dj,  x_fdds,   x_sl,   x_bj_fdds,   
+                    x_bj_dj,   x_bjb_bj,   x_bjb_dj,   x_bjb_datetime,   x_bjb_fdds,   x_wzfy,   
+                    x_flbh,    x_ggxh,     x_sccj,     x_key_ry,         x_jsgsbh,     x_bz,   
+                    x_wzdh,    x_lx,       x_cgf )   
+			      VALUES ( :curbjdbh ,:CURDY_BH + "0001","器件","",0,0,1,0,
+			           0,0,0,:CUR_SJ,0,0,
+						  "","","","",0,"",
+						  "",1,1) 
+			      USING SQLCA;
+              //33333333333333333333
+              INSERT INTO BJB  
+                  ( fabh,  x_bm,   x_mc,  x_dw,  x_dj,  x_fdds,   x_sl,   x_bj_fdds,   
+                    x_bj_dj,   x_bjb_bj,   x_bjb_dj,   x_bjb_datetime,   x_bjb_fdds,   x_wzfy,   
+                    x_flbh,    x_ggxh,     x_sccj,     x_key_ry,         x_jsgsbh,     x_bz,   
+                    x_wzdh,    x_lx,       x_cgf )   
+			      VALUES ( :curbjdbh ,:CURDY_BH + "0002","辅料","",0,0,1,0,
+			           0,0,0,:CUR_SJ,0,0,
+						  "","","","",0,"",
+						  "",12,1) 
+			      USING SQLCA;
+             //44444444444444444444
+              INSERT INTO BJB  
+                  ( fabh,  x_bm,   x_mc,  x_dw,  x_dj,  x_fdds,   x_sl,   x_bj_fdds,   
+                    x_bj_dj,   x_bjb_bj,   x_bjb_dj,   x_bjb_datetime,   x_bjb_fdds,   x_wzfy,   
+                    x_flbh,    x_ggxh,     x_sccj,     x_key_ry,         x_jsgsbh,     x_bz,   
+                    x_wzdh,    x_lx,       x_cgf )   
+			       VALUES ( :curbjdbh ,:CURDY_BH + "0003","壳体","",0,0,1,0,
+			           0,0,0,:CUR_SJ,0,0,
+						  "","","","",0,"",
+						  "",13,1) 
+			      USING SQLCA;
+             //55555555555555555555
+              INSERT INTO BJB  
+                  ( fabh,  x_bm,   x_mc,  x_dw,  x_dj,  x_fdds,   x_sl,   x_bj_fdds,   
+                    x_bj_dj,   x_bjb_bj,   x_bjb_dj,   x_bjb_datetime,   x_bjb_fdds,   x_wzfy,   
+                    x_flbh,    x_ggxh,     x_sccj,     x_key_ry,         x_jsgsbh,     x_bz,   
+                    x_wzdh,    x_lx,       x_cgf )   
+			      VALUES ( :curbjdbh ,:CURDY_BH + "0004","安装","",0,0,1,0,
+			           0,0,0,:CUR_SJ,0,0,
+						  "","","","",0,"",
+						  "",14,1) 
+			      USING SQLCA;
+			   //6666666666666666666
+             INSERT INTO BJB  
+                  ( fabh,  x_bm,   x_mc,  x_dw,  x_dj,  x_fdds,   x_sl,   x_bj_fdds,   
+                    x_bj_dj,   x_bjb_bj,   x_bjb_dj,   x_bjb_datetime,   x_bjb_fdds,   x_wzfy,   
+                    x_flbh,    x_ggxh,     x_sccj,     x_key_ry,         x_jsgsbh,     x_bz,   
+                    x_wzdh,    x_lx,       x_cgf )   
+			      VALUES ( :curbjdbh ,:CURDY_BH + "0005","包装","",0,0,1,0,
+			           0,0,0,:CUR_SJ,0,0,
+						  "","","","",0,"",
+						  "",15,1) 
+			      USING SQLCA;   
+             I = 0
+        End If
+   loop
+//ExcelServer.ActiveSheet.Cells(1,1).value = 7.23
+//ExcelServer.Application.Run("MacroName")
+commit using sqlca;
+ExcelServer.DisconnectObject()
+destroy ExcelServer
+long num
+num = fab.retrieve(curbjdbh) 
+loadfamx(num) //装入报价单到报价模型树中
+dw_1.settransobject(sqlca) ; dw_1.retrieve(curbjdbh,"",1) //参数:方案号，项编码，项级别
+commit using sqlca;
+messagebox("恭喜","报价单导入成功！")

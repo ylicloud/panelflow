@@ -1,0 +1,6 @@
+Docs/databaseStructure.md
+Docs/databaseStructure.csv
+Docs/databaseServer.md
+publish/
+**/bin/
+**/obj/

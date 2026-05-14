@@ -1,0 +1,52 @@
+long i 
+st_3.text = "正在进行报价单重新排序···" ; st_3.visible = true
+hzb = create datastore  //汇总类型规格表
+hzb.dataobject =  "dw_bjd_bjdselebh"  ;  hzb.SetTransObject(sqlca)
+hzbcnt = hzb.retrieve(curbjdbh)
+if hzbcnt < 2 then
+	st_3.visible = FALSE;destroy hzb;return
+end if
+string s1,s2,flbm 
+hzb_hz hztemp[]
+long k,curjb  ,num
+k=1
+flbm="0001"  //取得当前项编码
+hztemp[k].x_jb = 1
+hztemp[k].x_xb = 2
+hztemp[k].x_bm = "0001"
+hzb.object.x_bm[2] = "0001"
+//逐个装入各个分类
+FOR i= 3 TO hzbcnt - 1
+	flbm=trim(hzb.object.x_bm[i])  //取得当前项编码
+	st_3.text = "正在进行报价单重新排序:" + flbm
+	curjb = long(len(flbm) / 4 )
+	if (curjb > hztemp[k].x_jb) then
+			k = k + 1
+         hztemp[k].x_jb = curjb
+			hztemp[k].x_bm = hztemp[k - 1].x_bm + "0001"
+         hztemp[k].x_xb = i
+			hzb.object.x_bm[i] = hztemp[k].x_bm
+		else
+			do while ( curjb < hztemp[k].x_jb) 
+			      k = k - 1
+			loop
+			
+			hztemp[k].x_xb = i
+			hztemp[k].x_jb = curjb
+			s1 = hztemp[k].x_bm
+			s2 = left(s1,(curjb - 1 )*4) + string(long(right(s1,4)) + 1,"0000")
+			hztemp[k].x_bm = s2
+			hzb.object.x_bm[i] = s2
+		end if
+		
+NEXT
+hzb.update()
+if sqlca.sqlcode <> 0 then
+	st_3.visible = FALSE;rollback using sqlca;destroy hzb;return
+else
+	st_3.visible = FALSE;commit using sqlca;destroy hzb;
+end if
+num = fab.retrieve(curbjdbh)
+loadfamx(num)
+dw_1.retrieve(curbjdbh,"",1) //参数:方案号，项编码，项级别
+MESSAGEBOX("恭喜","重新排序成功!")

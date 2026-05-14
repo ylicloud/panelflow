@@ -1,0 +1,217 @@
+﻿@model PanelFlow.Web.Controllers.QuotationPriceViewModel
+@{
+    ViewData["Title"] = "报价";
+    var isImport = string.Equals(Model.ActiveSection, PanelFlow.Web.Controllers.PriceSection.ImportComponents, StringComparison.OrdinalIgnoreCase);
+    var pageTitle = isImport ? "导入元件" : "填写报价";
+    var uploadUrl = Url.Action("UploadImportExcel", "Quotation", new { id = Model.QuotationNo }) ?? string.Empty;
+    var saveExcelUrl = Url.Action("SaveImportExcel", "Quotation") ?? string.Empty;
+    var savePlanUrl = Url.Action("SavePlan", "Quotation") ?? string.Empty;
+    var cabinetComponentsUrl = Url.Action("GetCabinetComponents", "Quotation", new { id = Model.QuotationNo }) ?? string.Empty;
+    var projectComponentSummaryUrl = Url.Action("GetProjectComponentSummary", "Quotation", new { id = Model.QuotationNo }) ?? string.Empty;
+    var saveProjectSummaryUrl = Url.Action("SaveProjectComponentSummary", "Quotation", new { id = Model.QuotationNo }) ?? string.Empty;
+}
+<link rel="stylesheet" href="~/lib/handsontable/handsontable.full.min.css" />
+<style>
+    .price-workspace {
+        display: flex;
+        gap: 0;
+        min-height: 520px;
+    }
+
+    .price-tree-pane {
+        width: 32%;
+        min-width: 220px;
+        max-width: 60%;
+        transition: width .15s ease;
+    }
+
+    .price-tree-pane.is-collapsed {
+        display: none;
+    }
+
+    .price-splitter {
+        width: 8px;
+        cursor: col-resize;
+        background: linear-gradient(to right, transparent 2px, #dee2e6 2px, #dee2e6 6px, transparent 6px);
+        user-select: none;
+    }
+
+    .price-splitter.is-hidden {
+        display: none;
+    }
+
+    .price-table-pane {
+        flex: 1;
+        min-width: 320px;
+    }
+
+    .tree-node-link {
+        border: 0;
+        background: transparent;
+        padding: 0;
+        color: inherit;
+        text-align: left;
+        width: 100%;
+        cursor: pointer;
+    }
+
+    .tree-node-link:hover {
+        color: #0d6efd;
+    }
+
+    .tree-node-link-split {
+        color: #6f42c1;
+        font-weight: 700;
+    }
+
+    .tree-node-link-duplicate {
+        color: #dc3545;
+        font-weight: 700;
+    }
+
+    .tree-node-link-usage {
+        color: #0d6efd;
+        font-weight: 700;
+        background-color: #e7f1ff;
+        border-radius: 4px;
+        padding: 2px 4px;
+    }
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h5 class="fw-bold mb-0">
+        <i class="bi bi-currency-dollar me-2 text-success"></i>@pageTitle
+    </h5>
+    <div class="d-flex align-items-center gap-2">
+        <span class="small text-muted">报价单：@Model.QuotationNo</span>
+        <a href="@Url.Action("Index")" class="btn btn-sm btn-outline-secondary">返回列表</a>
+    </div>
+</div>
+
+<div class="oa-card mb-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <div class="d-flex flex-wrap gap-2">
+            <a class="btn btn-sm @(isImport ? "btn-primary" : "btn-outline-primary")"
+               href="@Url.Action("Price", new { id = Model.QuotationNo, section = PanelFlow.Web.Controllers.PriceSection.ImportComponents })">
+                <i class="bi bi-upload me-1"></i>导入元件
+            </a>
+            <a class="btn btn-sm @(!isImport ? "btn-primary" : "btn-outline-primary")"
+               href="@Url.Action("Price", new { id = Model.QuotationNo, section = PanelFlow.Web.Controllers.PriceSection.FillPrice })">
+                <i class="bi bi-pencil-square me-1"></i>填写报价
+            </a>
+        </div>
+        <button id="toggle-tree-btn" type="button" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-layout-sidebar-inset me-1"></i>隐藏目录树
+        </button>
+    </div>
+</div>
+
+<div id="page-info-bar" class="alert alert-info py-2 px-3 small mb-3">
+    提示：可通过“打开excel元件表”导入数据；支持前 8 列，最大 5000 行，遇到连续 5 空行自动结束。
+</div>
+
+<div class="price-workspace">
+    <div id="price-tree-pane" class="price-tree-pane">
+        <div class="oa-card h-100 me-2 d-flex flex-column">
+            <div class="small text-muted mb-2">目录树</div>
+            <ul class="list-unstyled mb-0 flex-grow-1">
+                <li class="fw-semibold mb-2">
+                    <button id="tree-root-node" type="button" class="tree-node-link">
+                        <i class="bi bi-diagram-3 me-1 text-primary"></i>
+                        @(string.IsNullOrWhiteSpace(Model.QuotationName) ? Model.QuotationNo : Model.QuotationName)
+                    </button>
+                </li>
+                <ul id="tree-children-container" class="list-unstyled mb-0">
+                    @if (Model.TreeNodes.Count == 0)
+                    {
+                        <li class="text-muted small ms-4">暂无 12 位目录节点</li>
+                    }
+                    else
+                    {
+                        @foreach (var node in Model.TreeNodes)
+                        {
+                            <li class="ms-4 mb-1">
+                                <button type="button" class="tree-node-link" data-unit-no="@node.Code">
+                                    <i class="bi bi-dot"></i>@node.Name
+                                    <span class="text-muted small ms-1">(@node.Code)</span>
+                                </button>
+                            </li>
+                        }
+                    }
+                </ul>
+            </ul>
+            @if (isImport)
+            {
+                <div class="mt-3">
+                    <button id="save-plan-btn" type="button" class="btn btn-sm btn-primary w-100" disabled>
+                        <i class="bi bi-save me-1"></i>保存方案
+                    </button>
+                </div>
+            }
+        </div>
+    </div>
+    <div id="price-splitter" class="price-splitter" aria-label="拖动调整左右宽度"></div>
+    <div class="price-table-pane">
+        <div class="oa-card h-100 ms-2">
+            <div class="small text-muted mb-2">
+                @if (isImport)
+                {
+                    <span>右侧表格（导入元件）</span>
+                }
+                else
+                {
+                    <span>右侧表格（填写报价）</span>
+                }
+            </div>
+            <div id="hot-container"
+                 class="border rounded"
+                 data-license-key="53ea8-c2678-49b80-cb40f-4dad4"
+                 data-upload-url="@uploadUrl"
+                 data-save-url="@saveExcelUrl"
+                 data-save-plan-url="@savePlanUrl"
+                 data-components-url="@cabinetComponentsUrl"
+                 data-project-summary-url="@projectComponentSummaryUrl"
+                 data-save-project-summary-url="@saveProjectSummaryUrl"
+                 data-quotation-no="@Model.QuotationNo"
+                 data-is-import="@(isImport ? "true" : "false")"
+                 style="min-height: 420px;">
+            </div>
+            <div id="component-usage-panel" class="alert alert-light border mt-3 d-none">
+                <div class="fw-semibold mb-2">使用控制柜</div>
+                <div id="component-usage-title" class="small text-muted mb-2"></div>
+                <ul id="component-usage-list" class="list-unstyled mb-0 small"></ul>
+            </div>
+            @if (isImport)
+            {
+                <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
+                    <form id="excel-upload-form" class="d-none" method="post" enctype="multipart/form-data">
+                        @Html.AntiForgeryToken()
+                        <input id="excel-file-input" type="file" name="file" accept=".xls,.xlsx" />
+                    </form>
+                    <button id="open-excel-btn" type="button" class="btn btn-sm btn-outline-primary">
+                        <i class="bi bi-file-earmark-excel me-1"></i>打开excel元件表
+                    </button>
+                    <button id="check-data-btn" type="button" class="btn btn-sm btn-outline-warning" disabled>
+                        <i class="bi bi-clipboard2-check me-1"></i>数据检查
+                    </button>
+                    <button id="preview-tree-btn" type="button" class="btn btn-sm btn-outline-info" disabled>
+                        <i class="bi bi-diagram-3 me-1"></i>目录预览
+                    </button>
+                    <button id="save-excel-btn" type="button" class="btn btn-sm btn-outline-success">
+                        <i class="bi bi-download me-1"></i>另存excel
+                    </button>
+                    <button id="save-summary-btn" type="button" class="btn btn-sm btn-primary" disabled>
+                        <i class="bi bi-floppy me-1"></i>保存数据
+                    </button>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="~/lib/handsontable/handsontable.full.min.js"></script>
+    <script src="~/js/quotation-price.js" asp-append-version="true"></script>
+}
+
+

@@ -1,0 +1,52 @@
+@model PanelFlow.Web.Controllers.CustomerEditViewModel
+@{
+    ViewData["Title"] = "新建客户";
+}
+
+<div class="row justify-content-center">
+    <div class="col-lg-7">
+        <div class="oa-card">
+            <h5 class="fw-bold mb-4"><i class="bi bi-building-add me-2"></i>新建客户</h5>
+
+            <form asp-action="Create" method="post">
+                @Html.AntiForgeryToken()
+
+                <div asp-validation-summary="All" class="alert alert-danger py-2 small"></div>
+
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label asp-for="CompanyNo" class="form-label fw-semibold"></label>
+                        <input asp-for="CompanyNo" class="form-control" maxlength="10" />
+                        <span asp-validation-for="CompanyNo" class="text-danger small"></span>
+                    </div>
+                    <div class="col-md-6">
+                        <label asp-for="CompanyName" class="form-label fw-semibold"></label>
+                        <input asp-for="CompanyName" class="form-control" maxlength="50" />
+                        <span asp-validation-for="CompanyName" class="text-danger small"></span>
+                    </div>
+                    <div class="col-md-6">
+                        <label asp-for="Alias" class="form-label fw-semibold"></label>
+                        <input asp-for="Alias" class="form-control" maxlength="10" />
+                        <span asp-validation-for="Alias" class="text-danger small"></span>
+                    </div>
+                    <div class="col-12">
+                        <label asp-for="Remark" class="form-label fw-semibold"></label>
+                        <textarea asp-for="Remark" class="form-control" rows="3" maxlength="100"></textarea>
+                        <span asp-validation-for="Remark" class="text-danger small"></span>
+                    </div>
+                </div>
+
+                <div class="alert alert-info small mt-3 mb-0">
+                    客户创建完成后，可在编辑页面维护多个联系人；第一个联系人会自动同步为旧系统默认联系人。
+                </div>
+
+                <div class="d-flex gap-2 mt-4">
+                    <button type="submit" class="btn btn-primary flex-fill py-2 fw-semibold">
+                        <i class="bi bi-check-lg me-1"></i>保存
+                    </button>
+                    <a href="@Url.Action("Index")" class="btn btn-outline-secondary py-2 fw-semibold">返回</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
