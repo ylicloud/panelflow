@@ -1,6 +1,26 @@
+<<<<<<< HEAD
 Docs/databaseStructure.md
 Docs/databaseStructure.csv
 Docs/databaseServer.md
 publish/
 **/bin/
 **/obj/
+
+# VS Code files for those working on multiple tools
+.vscode/*
+!.vscode/tasks.json
+!.vscode/launch.json
+
+# Local History for Visual Studio Code
+.history/
+
+# Built Visual Studio Code Extensions
+*.vsix
+
+# Windows Installer files from build outputs
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+
