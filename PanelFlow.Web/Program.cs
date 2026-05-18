@@ -79,4 +79,19 @@ app.MapControllerRoute(
     pattern: "{controller=Home}/{action=Index}/{id?}")
     .WithStaticAssets();
 
+// ===== 预热数据库连接池 =====
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    try
+    {
+        await db.Database.OpenConnectionAsync();
+        await db.Database.CloseConnectionAsync();
+    }
+    catch
+    {
+        // 启动时预热失败不影响应用启动，后续请求会重试
+    }
+}
+
 app.Run();

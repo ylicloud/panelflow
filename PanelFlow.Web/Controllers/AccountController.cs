@@ -42,7 +42,13 @@ public class AccountController : Controller
     [HttpGet]
     public async Task<IActionResult> DbStatus()
     {
+        // 首次失败时重试 1 次，避免冷启动误判
         var (connected, error) = await CheckDbConnectionAsync();
+        if (!connected && error?.Contains("timeout", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            await Task.Delay(500); // 等待连接池建立
+            (connected, error) = await CheckDbConnectionAsync();
+        }
         return Json(new { connected, error });
     }
 
@@ -186,7 +192,7 @@ public class AccountController : Controller
         try
         {
             var connStr = _db.Database.GetConnectionString() ?? string.Empty;
-            var builder = new SqlConnectionStringBuilder(connStr) { ConnectTimeout = 6 };
+            var builder = new SqlConnectionStringBuilder(connStr) { ConnectTimeout = 3 };
             await using var conn = new SqlConnection(builder.ConnectionString);
             await conn.OpenAsync();
             return (true, null);
