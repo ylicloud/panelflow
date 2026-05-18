@@ -22,4 +22,7 @@ publish/
 *.msix
 *.msm
 *.msp
+*.zip
+*.xls
+*.xlsx
 
