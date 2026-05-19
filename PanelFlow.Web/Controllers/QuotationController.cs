@@ -10,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using NPOI.SS.UserModel;
 using NPOI.XSSF.UserModel;
 using System.Globalization;
+using System.Text.Json;
 
 namespace PanelFlow.Web.Controllers;
 
@@ -19,15 +20,18 @@ public class QuotationController : Controller
     private readonly IQuotationService _quotationService;
     private readonly ApplicationDbContext _db;
     private readonly ILogger<QuotationController> _logger;
+    private readonly IAuditLogService _auditLogService;
 
     public QuotationController(
         IQuotationService quotationService,
         ApplicationDbContext db,
-        ILogger<QuotationController> logger)
+        ILogger<QuotationController> logger,
+        IAuditLogService auditLogService)
     {
         _quotationService = quotationService;
         _db = db;
         _logger = logger;
+        _auditLogService = auditLogService;
     }
 
     [HttpGet]
@@ -1098,6 +1102,234 @@ VALUES
         return RedirectToAction(nameof(Index));
     }
 
+    [HttpGet]
+    public IActionResult MergeExcel()
+    {
+        ViewData["Title"] = "Excel合并";
+        ViewData["BreadcrumbTitle"] = "Excel合并";
+        return View();
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> MergeExcelFile(IFormFile? file, [FromForm] int startSeqNo = 0)
+    {
+        if (file == null || file.Length <= 0)
+            return Json(new { success = false, message = "请选择 Excel 文件" });
+
+        var ext = Path.GetExtension(file.FileName);
+        if (!string.Equals(ext, ".xlsx", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(ext, ".xls", StringComparison.OrdinalIgnoreCase))
+        {
+            return Json(new { success = false, message = "仅支持 .xls / .xlsx 文件" });
+        }
+
+        try
+        {
+            await using var stream = file.OpenReadStream();
+            using var workbook = WorkbookFactory.Create(stream);
+            var sheet = workbook.NumberOfSheets > 0 ? workbook.GetSheetAt(0) : null;
+            if (sheet == null)
+                return Json(new { success = false, message = "Excel 中没有可读取的工作表" });
+
+            // 使用 Excel 文件名（去除扩展名）作为单元号
+            var unitName = Path.GetFileNameWithoutExtension(file.FileName) ?? "未知";
+            var formatter = new DataFormatter();
+            var evaluator = workbook.GetCreationHelper().CreateFormulaEvaluator();
+
+            var headerRow = sheet.GetRow(sheet.FirstRowNum);
+            if (headerRow == null)
+                return Json(new { success = false, message = "Excel 标题行无效" });
+
+            var colNameIndex = -1;
+            var colSpecIndex = -1;
+            var colQtyIndex = -1;
+            var colVendorIndex = -1;
+            var colRemarkIndex = -1;
+
+            for (var c = 0; c < headerRow.LastCellNum; c++)
+            {
+                var headerCell = headerRow.GetCell(c, MissingCellPolicy.RETURN_BLANK_AS_NULL);
+                if (headerCell == null) continue;
+                var headerText = formatter.FormatCellValue(headerCell, evaluator).Trim();
+                switch (headerText)
+                {
+                    case "名称":
+                        colNameIndex = c;
+                        break;
+                    case "型号规格":
+                        colSpecIndex = c;
+                        break;
+                    case "数量":
+                        colQtyIndex = c;
+                        break;
+                    case "厂商":
+                    case "生产厂家":
+                        colVendorIndex = c;
+                        break;
+                    case "备注":
+                        colRemarkIndex = c;
+                        break;
+                }
+            }
+
+            // 必须包含全部 5 个字段，否则忽略该文件
+            if (colNameIndex < 0 || colSpecIndex < 0 || colQtyIndex < 0 || colVendorIndex < 0 || colRemarkIndex < 0)
+            {
+                return Json(new
+                {
+                    success = false,
+                    ignored = true,
+                    message = "Excel 缺少必需列（名称/型号规格/数量/厂商/备注），已忽略"
+                });
+            }
+
+            var rows = new List<List<string>>();
+            var seqNo = startSeqNo;
+            var dataStartRow = sheet.FirstRowNum + 1;
+
+            seqNo++;
+            rows.Add(new List<string>
+            {
+                seqNo.ToString(),
+                unitName,
+                string.Empty,
+                string.Empty,
+                "0.0",
+                "1",
+                string.Empty,
+                "0.0"
+            });
+
+            for (var r = dataStartRow; r <= sheet.LastRowNum; r++)
+            {
+                var row = sheet.GetRow(r);
+                if (row == null) continue;
+
+                var name = colNameIndex >= 0
+                    ? formatter.FormatCellValue(row.GetCell(colNameIndex), evaluator).Trim()
+                    : string.Empty;
+                var spec = colSpecIndex >= 0
+                    ? formatter.FormatCellValue(row.GetCell(colSpecIndex), evaluator).Trim()
+                    : string.Empty;
+                var qty = colQtyIndex >= 0
+                    ? formatter.FormatCellValue(row.GetCell(colQtyIndex), evaluator).Trim()
+                    : string.Empty;
+                var vendor = colVendorIndex >= 0
+                    ? formatter.FormatCellValue(row.GetCell(colVendorIndex), evaluator).Trim()
+                    : string.Empty;
+
+                if (string.IsNullOrWhiteSpace(name) && string.IsNullOrWhiteSpace(spec) && string.IsNullOrWhiteSpace(qty))
+                    continue;
+
+                seqNo++;
+                var qtyValue = decimal.TryParse(qty, NumberStyles.Number, CultureInfo.InvariantCulture, out var q)
+                    ? q
+                    : (decimal.TryParse(qty, NumberStyles.Number, CultureInfo.CurrentCulture, out var q2) ? q2 : 1m);
+
+                rows.Add(new List<string>
+                {
+                    seqNo.ToString(),
+                    string.Empty,
+                    name,
+                    spec,
+                    "0.0",
+                    qtyValue.ToString(CultureInfo.InvariantCulture),
+                    vendor,
+                    "0.0"
+                });
+
+                if (rows.Count >= 5000)
+                    break;
+            }
+
+            return Json(new
+            {
+                success = true,
+                rows,
+                rowCount = rows.Count,
+                lastSeqNo = seqNo,
+                reachedLimit = rows.Count >= 5000
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "读取合并Excel失败。FileName={FileName}", file.FileName);
+            return Json(new { success = false, message = $"Excel 读取失败：{ex.Message}" });
+        }
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> ExportMergedExcel([FromBody] MergedExcelExportRequest? request)
+    {
+        if (request == null || request.Rows.Count == 0)
+            return BadRequest(new { success = false, message = "没有可导出的数据" });
+
+        var workbook = new XSSFWorkbook();
+        var sheet = workbook.CreateSheet("合并元件表");
+        var headers = new[] { "序号", "单元号", "名称", "规格", "单价", "数量", "生产厂家", "总价" };
+
+        var headerRow = sheet.CreateRow(0);
+        for (var c = 0; c < headers.Length; c++)
+        {
+            headerRow.CreateCell(c).SetCellValue(headers[c]);
+        }
+
+        var rows = request.Rows;
+        for (var r = 0; r < rows.Count; r++)
+        {
+            var row = sheet.CreateRow(r + 1);
+            var cols = rows[r] ?? [];
+            for (var c = 0; c < 8; c++)
+            {
+                var value = c < cols.Count ? (cols[c] ?? string.Empty) : string.Empty;
+                row.CreateCell(c).SetCellValue(value);
+            }
+        }
+
+        for (var c = 0; c < 8; c++)
+        {
+            sheet.AutoSizeColumn(c);
+        }
+
+        using var ms = new MemoryStream();
+        workbook.Write(ms, leaveOpen: true);
+        ms.Position = 0;
+
+        var fileName = $"合并元件表_{DateTime.Now:yyyyMMddHHmmss}.xlsx";
+
+        // 统计单元号数量（用于审计记录）
+        var unitCount = rows.Count(row => row != null && row.Count > 1 && !string.IsNullOrWhiteSpace(row[1]));
+
+        // 写入审计日志
+        var loginUser = HttpContext.Session.GetLoginUser();
+        await _auditLogService.WriteAsync(new()
+        {
+            ActionType = "ExportMergedExcel",
+            Module = "Quotation",
+            EntityName = "MergedExcel",
+            EntityId = fileName,
+            UserName = loginUser?.UserName ?? string.Empty,
+            DisplayName = loginUser?.DisplayName ?? string.Empty,
+            RoleName = loginUser?.RoleName ?? string.Empty,
+            ClientIp = HttpContext.Connection.RemoteIpAddress?.ToString(),
+            UserAgent = Request.Headers.UserAgent.ToString(),
+            IsSuccess = true,
+            AfterData = JsonSerializer.Serialize(new
+            {
+                fileName,
+                rowCount = rows.Count,
+                unitCount
+            })
+        });
+
+        return File(
+            ms.ToArray(),
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            fileName);
+    }
+
     private static QuotationDto ToDto(QuotationEditViewModel model)
     {
         return new QuotationDto
@@ -1306,6 +1538,11 @@ public class QuotationProjectSummaryUpdateItem
     public decimal NewPrice { get; set; }
     public decimal NewFloatRate { get; set; }
     public string NewVendor { get; set; } = string.Empty;
+}
+
+public class MergedExcelExportRequest
+{
+    public List<List<string?>> Rows { get; set; } = [];
 }
 
 internal class BjbWriteRow
