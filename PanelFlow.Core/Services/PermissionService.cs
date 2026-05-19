@@ -97,6 +97,8 @@ public class PermissionService : IPermissionService
                         AllowedRoles = [.. contractRoles] },
                     new() { Title = "客户", Icon = "bi-buildings", Url = "/Customer/Index",
                         AllowedRoles = [.. quoterRoles] },
+                    new() { Title = "Excel合并", Icon = "bi-files", Url = "/Quotation/MergeExcel",
+                        AllowedRoles = [.. quoterRoles] },
                 ]
             },
             new MenuItemModel
