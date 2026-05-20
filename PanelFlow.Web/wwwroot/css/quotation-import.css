@@ -1,0 +1,179 @@
+/* ============================================================
+ * quotation-import.css
+ * 报价单导入元件页面（Quotation/ImportComponents）专属样式
+ *
+ * 选择器与契约：
+ *   - 视图（任务 8.1）使用：#tree-pane / #tree-splitter / #grid-pane
+ *     / #tree-children-container / #page-info-bar 以及下列 .oa-* 类
+ *   - JS（任务 10.x）通过 .is-collapsed / .is-hidden 切换布局
+ *   - 类名前缀统一使用 `oa-`（见 frontend-delivery 规范）
+ *   - 仅在移动端响应式覆盖宽度处使用 !important（见 9.4 节）
+ * ============================================================ */
+
+/* ---------- 页面骨架 ---------- */
+.oa-import-header {
+    display: flex;
+    gap: 1rem;
+    align-items: baseline;
+    flex-wrap: wrap;
+    padding: 0.75rem 0;
+}
+
+.oa-import-toolbar {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    align-items: center;
+    padding: 0.5rem;
+    background: #fff;
+    border-radius: 8px;
+    margin-bottom: 0.75rem;
+}
+
+/* ---------- 双栏工作区 ---------- */
+.oa-import-workspace {
+    display: flex;
+    gap: 0;
+    min-height: 60vh;
+}
+
+#tree-pane,
+.oa-import-tree-pane {
+    width: 280px;
+    min-width: 220px;
+    max-width: 60%;
+    background: #fff;
+    border-radius: 8px;
+    padding: 1rem;
+    transition: width 0.15s ease;
+    box-sizing: border-box;
+}
+
+#tree-pane.is-collapsed,
+.oa-import-tree-pane.is-collapsed {
+    display: none;
+}
+
+#tree-splitter,
+.oa-import-splitter {
+    width: 8px;
+    cursor: col-resize;
+    user-select: none;
+    background: linear-gradient(
+        to right,
+        transparent 2px,
+        #dee2e6 2px,
+        #dee2e6 6px,
+        transparent 6px
+    );
+    flex-shrink: 0;
+}
+
+#tree-splitter.is-hidden,
+.oa-import-splitter.is-hidden {
+    display: none;
+}
+
+#grid-pane,
+.oa-import-grid-pane {
+    flex: 1;
+    min-width: 320px;
+    background: #fff;
+    border-radius: 8px;
+    padding: 1rem;
+    box-sizing: border-box;
+}
+
+/* ---------- 目录树 ---------- */
+.oa-tree-root,
+.oa-tree-children {
+    list-style: none;
+    padding-left: 0;
+    margin: 0;
+}
+
+.oa-tree-children {
+    margin-left: 1.25rem;
+}
+
+#tree-children-container {
+    list-style: none;
+    padding-left: 0;
+    margin: 0;
+    margin-left: 1.25rem;
+}
+
+.oa-tree-link {
+    background: none;
+    border: 0;
+    padding: 0.25rem 0.5rem;
+    text-align: left;
+    width: 100%;
+    cursor: pointer;
+    color: inherit;
+    border-radius: 4px;
+    font: inherit;
+    line-height: 1.5;
+}
+
+.oa-tree-link:hover,
+.oa-tree-link:focus {
+    background: #e9ecef;
+    color: #0d6efd;
+    outline: none;
+}
+
+.oa-tree-empty {
+    color: #6c757d;
+    padding: 0.25rem 0.5rem;
+}
+
+/* ---------- InfoBar ---------- */
+/* 复用 Bootstrap .alert 状态样式，仅在本页面覆写 margin */
+#page-info-bar {
+    margin-bottom: 0.75rem;
+}
+
+/* ---------- 移动端断点 ---------- */
+@media (max-width: 768px) {
+    .oa-import-workspace {
+        flex-direction: column;
+    }
+
+    /*
+     * 在移动端必须强制覆盖桌面端的 280px 固定宽度与 60% 上限，
+     * 否则左侧目录树会被挤压到不可用状态。这是设计文档中
+     * 唯一允许使用 !important 的位置。
+     */
+    #tree-pane,
+    .oa-import-tree-pane {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0;
+    }
+
+    #tree-splitter,
+    .oa-import-splitter {
+        display: none;
+    }
+
+    .oa-import-toolbar {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+}
+
+/* ---------- 安全区适配（刘海屏 / 圆角屏） ---------- */
+@supports (padding-top: env(safe-area-inset-top)) {
+    .oa-import-header {
+        padding-top: max(0.5rem, env(safe-area-inset-top));
+    }
+
+    .oa-import-workspace {
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+}
