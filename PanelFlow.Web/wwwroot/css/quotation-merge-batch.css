@@ -1,0 +1,62 @@
+/* 批量编辑面板 */
+.oa-batch-panel {
+  border-top: 1px solid #dee2e6;
+  padding-top: 0.75rem;
+  padding-bottom: max(8px, env(safe-area-inset-bottom));
+}
+
+.oa-batch-header {
+  font-size: 0.85rem;
+}
+
+.oa-batch-section + .oa-batch-section {
+  border-top: 1px dashed #dee2e6;
+  padding-top: 0.5rem;
+}
+
+.oa-batch-section-toggle {
+  font-size: 0.8rem;
+  color: #6c757d;
+  text-decoration: none;
+}
+.oa-batch-section-toggle:hover { color: #0d6efd; }
+
+/* 元件编辑器表格：移动端横向可滚动 */
+.oa-component-editor {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.oa-component-table {
+  min-width: 380px;
+  font-size: 0.78rem;
+}
+
+.oa-component-table input {
+  min-width: 0;
+  padding: 2px 4px;
+}
+
+/* checkbox 与 tree-node-link 同行对齐 */
+.oa-unit-checkbox {
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+/* tree li 改为 flex */
+#tree-children-container li {
+  display: flex;
+  align-items: center;
+}
+
+/* 全选/取消全选 按钮区域 */
+#tree-select-actions {
+  border-bottom: 1px solid #dee2e6;
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+@media (max-width: 768px) {
+  .oa-batch-panel { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+  .oa-component-table { font-size: 0.72rem; }
+}
