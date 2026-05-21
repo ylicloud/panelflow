@@ -45,3 +45,75 @@ ALTER TABLE [dbo].[KHYLB] ADD [created_by] varchar(50) NULL;
 
 PRINT 'KHYLB 表结构更新完成';
 GO
+
+### 创建客户联系人表
+- 先要创建客户表的主键
+ALTER TABLE [dbo].[KHYLB] 
+ADD CONSTRAINT [PK_KHYLB] PRIMARY KEY NONCLUSTERED 
+(
+    [gsbh] ASC,
+    [bmmc] ASC
+) 
+WITH (
+    PAD_INDEX = OFF, 
+    STATISTICS_NORECOMPUTE = OFF, 
+    IGNORE_DUP_KEY = OFF, 
+    ALLOW_ROW_LOCKS = ON, 
+    ALLOW_PAGE_LOCKS = ON, 
+    OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF
+) 
+ON [PRIMARY];
+
+- 再创建联系人表
+USE [DKZX_MIS_MSSQL]
+GO
+
+/****** Object:  Table [dbo].[KHYLB_CONTACT]    Script Date: 2026/5/21 16:30:34 ******/
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+CREATE TABLE [dbo].[KHYLB_CONTACT](
+	[Id] [int] IDENTITY(1,1) NOT NULL,
+	[gsbh] [varchar](10) NOT NULL,
+	[lxr] [varchar](100) NOT NULL,
+	[lxdh] [varchar](40) NULL,
+	[email] [varchar](100) NULL,
+	[zw] [varchar](50) NULL,
+	[is_default] [bit] NOT NULL,
+	[sort_no] [int] NOT NULL,
+	[is_enabled] [bit] NOT NULL,
+	[created_at] [datetime] NOT NULL,
+	[updated_at] [datetime] NOT NULL,
+ CONSTRAINT [PK_KHYLB_CONTACT] PRIMARY KEY CLUSTERED 
+(
+	[Id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+
+ALTER TABLE [dbo].[KHYLB_CONTACT] ADD  CONSTRAINT [DF_KHYLB_CONTACT_is_default]  DEFAULT ((0)) FOR [is_default]
+GO
+
+ALTER TABLE [dbo].[KHYLB_CONTACT] ADD  CONSTRAINT [DF_KHYLB_CONTACT_sort_no]  DEFAULT ((100)) FOR [sort_no]
+GO
+
+ALTER TABLE [dbo].[KHYLB_CONTACT] ADD  CONSTRAINT [DF_KHYLB_CONTACT_is_enabled]  DEFAULT ((1)) FOR [is_enabled]
+GO
+
+ALTER TABLE [dbo].[KHYLB_CONTACT] ADD  CONSTRAINT [DF_KHYLB_CONTACT_created_at]  DEFAULT (getdate()) FOR [created_at]
+GO
+
+ALTER TABLE [dbo].[KHYLB_CONTACT] ADD  CONSTRAINT [DF_KHYLB_CONTACT_updated_at]  DEFAULT (getdate()) FOR [updated_at]
+GO
+
+ALTER TABLE [dbo].[KHYLB_CONTACT]  WITH CHECK ADD  CONSTRAINT [FK_KHYLB_CONTACT_KHYLB] FOREIGN KEY([gsbh])
+REFERENCES [dbo].[KHYLB] ([gsbh])
+GO
+
+ALTER TABLE [dbo].[KHYLB_CONTACT] CHECK CONSTRAINT [FK_KHYLB_CONTACT_KHYLB]
+GO
+
+
