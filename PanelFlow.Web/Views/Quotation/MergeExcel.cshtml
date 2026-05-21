@@ -2,33 +2,47 @@
     ViewData["Title"] = "Excel合并";
     var mergeUrl = Url.Action("MergeExcelFile", "Quotation") ?? string.Empty;
     var exportUrl = Url.Action("ExportMergedExcel", "Quotation") ?? string.Empty;
+    var sheetCountUrl = Url.Action("GetSheetCount", "Quotation") ?? string.Empty;
+    var multiSheetMergeUrl = Url.Action("MergeExcelMultiSheet", "Quotation") ?? string.Empty;
 }
 <link rel="stylesheet" href="~/lib/handsontable/handsontable.full.min.css" />
+<link rel="stylesheet" href="~/css/quotation-merge-batch.css" asp-append-version="true" />
 <style>
-    .price-workspace { display: flex; gap: 0; min-height: 520px; }
-    .price-tree-pane { width: 32%; min-width: 220px; max-width: 60%; transition: width .15s ease; }
+    .price-workspace { display: flex; gap: 0; height: calc(100vh - 260px); min-height: 300px; overflow: hidden; }
+    .price-tree-pane { width: 32%; min-width: 220px; max-width: 60%; transition: width .15s ease; overflow-y: auto; }
     .price-tree-pane.is-collapsed { display: none; }
     .price-splitter { width: 8px; cursor: col-resize; background: linear-gradient(to right, transparent 2px, #dee2e6 2px, #dee2e6 6px, transparent 6px); user-select: none; }
     .price-splitter.is-hidden { display: none; }
-    .price-table-pane { flex: 1; min-width: 320px; }
+    .price-table-pane { flex: 1; min-width: 320px; overflow: hidden; }
     .tree-node-link { border: 0; background: transparent; padding: 0; color: inherit; text-align: left; width: 100%; cursor: pointer; }
     .tree-node-link:hover { color: #0d6efd; }
 </style>
 
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h5 class="fw-bold mb-0">
-        <i class="bi bi-files me-2 text-primary"></i>Excel合并
-    </h5>
-    <div class="d-flex align-items-center gap-2">
-        <a href="@Url.Action("Index", "Home")" class="btn btn-sm btn-outline-secondary">返回首页</a>
-    </div>
-</div>
-
 <div class="oa-card mb-3">
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
-        <button id="toggle-tree-btn" type="button" class="btn btn-sm btn-outline-secondary">
-            <i class="bi bi-layout-sidebar-inset me-1"></i>隐藏目录树
-        </button>
+        <div class="d-flex align-items-center gap-2">
+            <button id="toggle-tree-btn" type="button" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-layout-sidebar-inset me-1"></i>隐藏目录树
+            </button>
+            <button id="clear-all-btn" type="button" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-trash3 me-1"></i>清空数据
+            </button>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <form id="excel-upload-form" class="d-none" method="post" enctype="multipart/form-data">
+                @Html.AntiForgeryToken()
+                <input id="excel-file-input" type="file" name="files" accept=".xls,.xlsx" multiple />
+            </form>
+            <button id="open-excel-btn" type="button" class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-file-earmark-excel me-1"></i>选择Excel文件
+            </button>
+            <button id="merge-excel-btn" type="button" class="btn btn-sm btn-primary" disabled>
+                <i class="bi bi-files me-1"></i>合并
+            </button>
+            <button id="export-excel-btn" type="button" class="btn btn-sm btn-outline-success" disabled>
+                <i class="bi bi-download me-1"></i>导出Excel
+            </button>
+        </div>
     </div>
 </div>
 
@@ -43,38 +57,94 @@
             <ul id="tree-children-container" class="list-unstyled mb-0 flex-grow-1">
                 <li class="text-muted small ms-4">暂无文件</li>
             </ul>
-            <div class="mt-3">
-                <button id="clear-all-btn" type="button" class="btn btn-sm btn-outline-secondary w-100">
-                    <i class="bi bi-trash3 me-1"></i>清空数据
-                </button>
+            <!-- 批量编辑面板 -->
+            <div id="batch-edit-panel" class="oa-batch-panel mt-3 d-none">
+                <div class="oa-batch-header d-flex align-items-center justify-content-between mb-2">
+                    <span class="small fw-semibold text-primary">
+                        <i class="bi bi-pencil-square me-1"></i>批量编辑
+                        （已选 <span id="batch-selected-count">0</span> 个）
+                    </span>
+                </div>
+                <!-- 壳体类型/尺寸 区域 -->
+                <div class="oa-batch-section">
+                    <button type="button" class="oa-batch-section-toggle btn btn-sm btn-link px-0 py-0 mb-1 text-start w-100"
+                            data-target="shell-section-body" aria-expanded="true">
+                        <i class="bi bi-chevron-down me-1 oa-toggle-icon"></i>壳体类型 / 尺寸
+                    </button>
+                    <div id="shell-section-body" class="oa-batch-section-body">
+                        <div class="mb-2">
+                            <label class="form-label small mb-1">壳体类型</label>
+                            <select id="shell-type-select" class="form-select form-select-sm">
+                                <option value="">-- 请选择 --</option>
+                                <option value="操作箱">操作箱</option>
+                                <option value="控制柜">控制柜</option>
+                                <option value="操作盒">操作盒</option>
+                                <option value="操作台">操作台</option>
+                                <option value="__custom__">其他（自定义）</option>
+                            </select>
+                        </div>
+                        <div id="custom-type-wrapper" class="mb-2 d-none">
+                            <label class="form-label small mb-1">自定义类型名称（最多10字）</label>
+                            <input id="custom-type-input" type="text" class="form-control form-control-sm" maxlength="10" placeholder="请输入壳体类型" />
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small mb-1">柜体尺寸（mm，可选）</label>
+                            <div class="d-flex gap-1">
+                                <input id="dim-w-input" type="number" class="form-control form-control-sm" min="1" max="9999" placeholder="宽W" />
+                                <input id="dim-h-input" type="number" class="form-control form-control-sm" min="1" max="9999" placeholder="高H" />
+                                <input id="dim-d-input" type="number" class="form-control form-control-sm" min="1" max="9999" placeholder="深D" />
+                            </div>
+                        </div>
+                        <button id="apply-shell-btn" type="button" class="btn btn-sm btn-primary w-100">
+                            <i class="bi bi-check2-circle me-1"></i>应用壳体类型
+                        </button>
+                    </div>
+                </div>
+                <!-- 通用元件 区域 -->
+                <div class="oa-batch-section mt-3">
+                    <button type="button" class="oa-batch-section-toggle btn btn-sm btn-link px-0 py-0 mb-1 text-start w-100"
+                            data-target="component-section-body" aria-expanded="true">
+                        <i class="bi bi-chevron-down me-1 oa-toggle-icon"></i>通用元件
+                    </button>
+                    <div id="component-section-body" class="oa-batch-section-body">
+                        <div class="oa-component-editor mb-2">
+                            <table class="table table-sm table-bordered oa-component-table mb-1">
+                                <thead>
+                                    <tr>
+                                        <th class="small">名称</th>
+                                        <th class="small">规格</th>
+                                        <th class="small" style="width:52px">数量</th>
+                                        <th class="small" style="width:60px">单价</th>
+                                        <th class="small">厂家</th>
+                                        <th style="width:28px"></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="component-editor-body">
+                                </tbody>
+                            </table>
+                            <button id="add-component-row-btn" type="button" class="btn btn-sm btn-outline-secondary w-100">
+                                <i class="bi bi-plus me-1"></i>添加元件行
+                            </button>
+                        </div>
+                        <button id="apply-components-btn" type="button" class="btn btn-sm btn-success w-100">
+                            <i class="bi bi-list-check me-1"></i>批量添加元件
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
     <div id="price-splitter" class="price-splitter" aria-label="拖动调整左右宽度"></div>
     <div class="price-table-pane">
-        <div class="oa-card h-100 ms-2">
-            <div class="small text-muted mb-2">合并结果表格</div>
+        <div class="oa-card h-100 ms-2 d-flex flex-column">
             <div id="hot-container"
-                 class="border rounded"
+                 class="border rounded flex-grow-1"
                  data-license-key="53ea8-c2678-49b80-cb40f-4dad4"
                  data-merge-url="@mergeUrl"
                  data-export-url="@exportUrl"
-                 style="min-height: 420px;">
-            </div>
-            <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
-                <form id="excel-upload-form" class="d-none" method="post" enctype="multipart/form-data">
-                    @Html.AntiForgeryToken()
-                    <input id="excel-file-input" type="file" name="files" accept=".xls,.xlsx" multiple />
-                </form>
-                <button id="open-excel-btn" type="button" class="btn btn-sm btn-outline-primary">
-                    <i class="bi bi-file-earmark-excel me-1"></i>选择Excel文件
-                </button>
-                <button id="merge-excel-btn" type="button" class="btn btn-sm btn-primary" disabled>
-                    <i class="bi bi-files me-1"></i>合并
-                </button>
-                <button id="export-excel-btn" type="button" class="btn btn-sm btn-outline-success" disabled>
-                    <i class="bi bi-download me-1"></i>导出Excel
-                </button>
+                 data-sheet-count-url="@sheetCountUrl"
+                 data-multi-sheet-merge-url="@multiSheetMergeUrl"
+                 style="min-height: 200px;">
             </div>
         </div>
     </div>
@@ -83,4 +153,5 @@
 @section Scripts {
     <script src="~/lib/handsontable/handsontable.full.min.js"></script>
     <script src="~/js/quotation-merge.js" asp-append-version="true"></script>
+    <script src="~/js/quotation-merge-batch.js" asp-append-version="true"></script>
 }

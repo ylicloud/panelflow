@@ -785,7 +785,7 @@ VALUES
         }
     }
 
-    private static List<BjbWriteRow> BuildRowsFromTable(List<List<string?>> tableRows, List<string> treeNodeNames)
+    internal static List<BjbWriteRow> BuildRowsFromTable(List<List<string?>> tableRows, List<string> treeNodeNames)
     {
         var sourceUnits = ParseSourceUnits(tableRows);
         if (sourceUnits.Count == 0)
@@ -1256,6 +1256,237 @@ VALUES
         {
             _logger.LogError(ex, "读取合并Excel失败。FileName={FileName}", file.FileName);
             return Json(new { success = false, message = $"Excel 读取失败：{ex.Message}" });
+        }
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> GetSheetCount(IFormFile? file)
+    {
+        if (file == null || file.Length <= 0)
+            return Json(new { success = false, message = "文件无法读取" });
+
+        var ext = Path.GetExtension(file.FileName);
+        if (!string.Equals(ext, ".xlsx", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(ext, ".xls", StringComparison.OrdinalIgnoreCase))
+        {
+            return Json(new { success = false, message = "仅支持 .xls / .xlsx 文件" });
+        }
+
+        try
+        {
+            await using var stream = file.OpenReadStream();
+            using var workbook = WorkbookFactory.Create(stream);
+
+            var sheetCount = workbook.NumberOfSheets;
+            var sheetNames = new List<string>(sheetCount);
+            for (var i = 0; i < sheetCount; i++)
+            {
+                sheetNames.Add(workbook.GetSheetName(i));
+            }
+
+            await Task.CompletedTask;
+
+            return Json(new { success = true, sheetCount, sheetNames });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "读取Sheet信息失败。FileName={FileName}", file.FileName);
+            return Json(new { success = false, message = "文件无法读取" });
+        }
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> MergeExcelMultiSheet(IFormFile? file, [FromForm] int startSeqNo = 0)
+    {
+        if (file == null || file.Length <= 0)
+            return Json(new { success = false, message = "文件无法读取或不包含任何 Sheet" });
+
+        var ext = Path.GetExtension(file.FileName);
+        if (!string.Equals(ext, ".xlsx", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(ext, ".xls", StringComparison.OrdinalIgnoreCase))
+        {
+            return Json(new { success = false, message = "仅支持 .xls / .xlsx 文件" });
+        }
+
+        try
+        {
+            await using var stream = file.OpenReadStream();
+            using var workbook = WorkbookFactory.Create(stream);
+
+            var totalSheets = workbook.NumberOfSheets;
+            if (totalSheets == 0)
+                return Json(new { success = false, message = "文件无法读取或不包含任何 Sheet" });
+
+            var rows = new List<List<string>>();
+            var seqNo = startSeqNo;
+            var importedSheets = 0;
+            var ignoredSheets = 0;
+            var ignoredSheetNames = new List<string>();
+            var ignoredSheetReasons = new List<string>();
+            var reachedLimit = false;
+            var usedUnitCodes = new HashSet<string>(StringComparer.Ordinal);
+            var allSheetNames = new List<string>();
+
+            // 收集所有 Sheet 原始名称（用于单元号冲突检测）
+            for (var s = 0; s < totalSheets; s++)
+                allSheetNames.Add(workbook.GetSheetName(s));
+
+            // 按 Sheet 索引升序遍历
+            for (var i = 0; i < totalSheets; i++)
+            {
+                var sheet = workbook.GetSheetAt(i);
+                if (sheet == null)
+                {
+                    ignoredSheets++;
+                    ignoredSheetNames.Add(workbook.GetSheetName(i));
+                    ignoredSheetReasons.Add("Sheet 为空");
+                    continue;
+                }
+
+                // 2.2 - 表头列映射与 Sheet 有效性检测
+                var headerRow = sheet.GetRow(0);
+                if (headerRow == null)
+                {
+                    ignoredSheets++;
+                    ignoredSheetNames.Add(sheet.SheetName);
+                    ignoredSheetReasons.Add("无表头行");
+                    continue;
+                }
+
+                int colName = -1, colSpec = -1, colQty = -1, colVendor = -1, colRemark = -1;
+                for (var c = headerRow.FirstCellNum; c < headerRow.LastCellNum; c++)
+                {
+                    var cell = headerRow.GetCell(c);
+                    if (cell == null) continue;
+                    var cellValue = cell.ToString()?.Trim() ?? string.Empty;
+
+                    if (cellValue == "名称") colName = c;
+                    else if (cellValue == "型号规格" || cellValue == "规格型号" || cellValue == "规格" || cellValue == "型号") colSpec = c;
+                    else if (cellValue == "数量") colQty = c;
+                    else if (cellValue == "厂商" || cellValue == "生产厂家") colVendor = c;
+                    else if (cellValue == "备注") colRemark = c;
+                }
+
+                if (colName < 0 || colSpec < 0 || colQty < 0 || colVendor < 0 || colRemark < 0)
+                {
+                    ignoredSheets++;
+                    ignoredSheetNames.Add(sheet.SheetName);
+                    var missing = new List<string>();
+                    if (colName < 0) missing.Add("名称");
+                    if (colSpec < 0) missing.Add("型号规格");
+                    if (colQty < 0) missing.Add("数量");
+                    if (colVendor < 0) missing.Add("厂商");
+                    if (colRemark < 0) missing.Add("备注");
+                    ignoredSheetReasons.Add($"缺少列：{string.Join("、", missing)}");
+                    continue;
+                }
+                // 2.3 - 单元号唯一性生成
+                var sheetName = sheet.SheetName;
+                string unitCode;
+                if (!usedUnitCodes.Contains(sheetName))
+                {
+                    unitCode = sheetName;
+                }
+                else
+                {
+                    var n = 2;
+                    while (true)
+                    {
+                        var candidate = sheetName + "_" + n;
+                        if (!usedUnitCodes.Contains(candidate)
+                            && !allSheetNames.Any(name => string.Equals(name, candidate, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            unitCode = candidate;
+                            break;
+                        }
+                        n++;
+                    }
+                }
+                usedUnitCodes.Add(unitCode);
+
+                // 2.4 - 数据行解析与合并行生成
+
+                // 插入 UnitHeaderRow
+                seqNo++;
+                rows.Add(new List<string> { seqNo.ToString(), unitCode, "", "", "", "", "", "" });
+
+                if (rows.Count >= 5000)
+                {
+                    reachedLimit = true;
+                    break;
+                }
+
+                // 从第 2 行开始逐行读取数据
+                var consecutiveEmptyRows = 0;
+                var sheetFullyProcessed = true;
+
+                for (var rowIdx = 1; rowIdx <= sheet.LastRowNum; rowIdx++)
+                {
+                    var dataRow = sheet.GetRow(rowIdx);
+
+                    var nameValue = dataRow?.GetCell(colName)?.ToString()?.Trim() ?? "";
+                    var specValue = dataRow?.GetCell(colSpec)?.ToString()?.Trim() ?? "";
+                    var qtyValue = dataRow?.GetCell(colQty)?.ToString()?.Trim() ?? "";
+
+                    // 判断三列是否同时为空
+                    if (string.IsNullOrEmpty(nameValue) && string.IsNullOrEmpty(specValue) && string.IsNullOrEmpty(qtyValue))
+                    {
+                        consecutiveEmptyRows++;
+                        if (consecutiveEmptyRows >= 5)
+                            break; // 连续 5 行空行，停止当前 Sheet
+                        continue;
+                    }
+
+                    // 有效行：重置空行计数
+                    consecutiveEmptyRows = 0;
+
+                    var vendorValue = dataRow?.GetCell(colVendor)?.ToString()?.Trim() ?? "";
+
+                    seqNo++;
+                    rows.Add(new List<string> { seqNo.ToString(), "", nameValue, specValue, "0.0", qtyValue, vendorValue, "0.0" });
+
+                    if (rows.Count >= 5000)
+                    {
+                        reachedLimit = true;
+                        sheetFullyProcessed = false;
+                        break;
+                    }
+                }
+
+                if (reachedLimit)
+                {
+                    if (!sheetFullyProcessed)
+                    {
+                        // 当前 Sheet 未完整处理，不计入 importedSheets
+                    }
+                    break;
+                }
+
+                importedSheets++;
+            }
+
+            await Task.CompletedTask;
+
+            return Json(new
+            {
+                success = true,
+                rows,
+                rowCount = rows.Count,
+                lastSeqNo = seqNo,
+                reachedLimit,
+                totalSheets,
+                importedSheets,
+                ignoredSheets,
+                ignoredSheetNames,
+                ignoredSheetReasons
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "多Sheet合并解析失败。FileName={FileName}", file.FileName);
+            return Json(new { success = false, message = "Excel 解析失败，请检查文件格式" });
         }
     }
 
