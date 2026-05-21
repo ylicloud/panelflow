@@ -30,6 +30,7 @@ public class ContractController : Controller
         ViewData["BreadcrumbTitle"] = "制造合同";
 
         var result = await _contractService.GetListAsync(keyword, includeHistory, page, pageSize);
+        var loginUser = HttpContext.Session.GetLoginUser();
         var model = new ContractListViewModel
         {
             Keyword = keyword?.Trim(),
@@ -38,7 +39,8 @@ public class ContractController : Controller
             PageSize = result.PageSize,
             TotalCount = result.TotalCount,
             TotalPages = result.TotalPages,
-            Items = result.Items.Select(ToListItem).ToList()
+            Items = result.Items.Select(ToListItem).ToList(),
+            CurrentUserName = loginUser?.UserName ?? string.Empty
         };
         return View(model);
     }
@@ -207,7 +209,8 @@ public class ContractController : Controller
             SignDate = dto.SignDate,
             DeliveryDate = dto.DeliveryDate,
             TotalAmount = dto.TotalAmount,
-            CurrentStatus = dto.CurrentStatus
+            CurrentStatus = dto.CurrentStatus,
+            Quoter = dto.Quoter
         };
     }
 
@@ -239,6 +242,9 @@ public class ContractListViewModel
     public int TotalCount { get; set; }
     public int TotalPages { get; set; } = 1;
     public List<ContractListItemViewModel> Items { get; set; } = [];
+
+    /// <summary>当前登录用户名，用于判断是否有权限编辑/删除合同。</summary>
+    public string CurrentUserName { get; set; } = string.Empty;
 }
 
 public class ContractListItemViewModel
@@ -253,6 +259,9 @@ public class ContractListItemViewModel
     public DateTime? DeliveryDate { get; set; }
     public decimal TotalAmount { get; set; }
     public int CurrentStatus { get; set; }
+
+    /// <summary>报价人（来自BJFAT.bjr），用于判断当前用户是否有权限编辑/删除。</summary>
+    public string Quoter { get; set; } = string.Empty;
 }
 
 public class ContractEditViewModel
