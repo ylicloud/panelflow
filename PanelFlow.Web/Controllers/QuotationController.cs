@@ -5,6 +5,7 @@ using PanelFlow.Core.Services;
 using PanelFlow.Infrastructure.Data;
 using PanelFlow.Web.Extensions;
 using PanelFlow.Web.Filters;
+using PanelFlow.Web.Models.Quotation;
 using System.ComponentModel.DataAnnotations;
 using Microsoft.EntityFrameworkCore;
 using NPOI.SS.UserModel;
@@ -576,6 +577,9 @@ WHERE LTRIM(RTRIM(fabh)) = {quotationNo}
         if (file == null || file.Length <= 0)
             return Json(new { success = false, message = "请选择 Excel 文件" });
 
+        if (file.Length > 10L * 1024 * 1024)
+            return Json(new { success = false, message = "文件大小不能超过 10 MB" });
+
         var ext = Path.GetExtension(file.FileName);
         if (!string.Equals(ext, ".xlsx", StringComparison.OrdinalIgnoreCase)
             && !string.Equals(ext, ".xls", StringComparison.OrdinalIgnoreCase))
@@ -648,7 +652,7 @@ WHERE LTRIM(RTRIM(fabh)) = {quotationNo}
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "读取报价导入Excel失败。QuotationNo={QuotationNo}, FileName={FileName}", quotationNo, file.FileName);
+            _logger.LogError(ex, "Excel 解析失败 fabh={fabh}", id);
             return Json(new { success = false, message = $"Excel 读取失败：{ex.Message}" });
         }
     }
@@ -736,6 +740,19 @@ WHERE LTRIM(RTRIM(fabh)) = {quotationNo}
         if (treeNodeNames.Count == 0)
             return BadRequest(new { success = false, message = "目录树为空，请先执行目录预览后再保存方案" });
 
+        // 显式前置校验：目录树节点数量必须等于表格单元拆分总数（Σ SplitCount）。
+        // BuildRowsFromTable 内部仍保留 InvalidOperationException 兜底（第二道防线）。
+        var sourceUnits = ParseSourceUnits(tableRows);
+        var expected = sourceUnits.Sum(u => u.SplitCount);
+        if (expected != treeNodeNames.Count)
+        {
+            return BadRequest(new
+            {
+                success = false,
+                message = "目录树节点数量与表格单元拆分数量不一致，请重新执行目录预览"
+            });
+        }
+
         var rowsToInsert = BuildRowsFromTable(tableRows, treeNodeNames);
         if (rowsToInsert.Count == 0)
             return BadRequest(new { success = false, message = "未解析到可保存的目录/元件数据" });
@@ -785,6 +802,10 @@ VALUES
         }
     }
 
+    // 可见性说明：从 private 提升为 internal 以便 PanelFlow.Web.Tests 通过
+    // [InternalsVisibleTo("PanelFlow.Web.Tests")] 直接调用。本调整仅扩大可见范围、
+    // 不改变方法行为，与设计文档 design.md "风险与未验证项" 中 "BuildRowsFromTable
+    // 当前位于 Controller 内部，PBT 测试需要将其从 internal 升级访问可见性" 一致。
     internal static List<BjbWriteRow> BuildRowsFromTable(List<List<string?>> tableRows, List<string> treeNodeNames)
     {
         var sourceUnits = ParseSourceUnits(tableRows);
@@ -856,7 +877,9 @@ VALUES
         return result;
     }
 
-    private static List<SourceUnitBlock> ParseSourceUnits(List<List<string?>> tableRows)
+    // 可见性说明：从 private 提升为 internal，与上方 BuildRowsFromTable 同步，
+    // 便于 PanelFlow.Web.Tests 在 PBT 测试中直接复用。
+    internal static List<SourceUnitBlock> ParseSourceUnits(List<List<string?>> tableRows)
     {
         var units = new List<SourceUnitBlock>();
         SourceUnitBlock? currentUnit = null;
@@ -1721,21 +1744,6 @@ public static class PriceSection
 {
     public const string ImportComponents = "import";
     public const string FillPrice = "fill";
-}
-
-public class QuotationTreeNodeViewModel
-{
-    public string Code { get; set; } = string.Empty;
-    public string Name { get; set; } = string.Empty;
-}
-
-public class QuotationPriceViewModel
-{
-    public string QuotationNo { get; set; } = string.Empty;
-    public string QuotationName { get; set; } = string.Empty;
-    public int CurrentStatus { get; set; }
-    public string ActiveSection { get; set; } = PriceSection.ImportComponents;
-    public List<QuotationTreeNodeViewModel> TreeNodes { get; set; } = [];
 }
 
 public class QuotationExcelSaveRequest

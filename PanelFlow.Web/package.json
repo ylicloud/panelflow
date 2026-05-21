@@ -1,0 +1,14 @@
+{
+  "name": "panelflow-web-tests",
+  "version": "0.0.0",
+  "private": true,
+  "description": "前端单元测试与属性测试基础设施（仅本地测试，不发布到 npm）",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "fast-check": "^3.23.0",
+    "jsdom": "^26.0.0",
+    "vitest": "^3.2.0"
+  }
+}

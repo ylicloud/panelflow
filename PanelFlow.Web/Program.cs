@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
 using PanelFlow.Core.Interfaces;
 using PanelFlow.Core.Services;
@@ -52,6 +53,11 @@ builder.Services.AddSession(options =>
 
 // ===== MVC =====
 builder.Services.AddControllersWithViews();
+
+// ===== 上传上限：报价单导入 Excel 等文件上传限制为 10 MB =====
+// 显式声明全局 multipart 上限，避免框架默认 28MB 上限先于业务 10MB 校验生效。
+// 其他上传入口若无单独限制将共用此值。
+builder.Services.Configure<FormOptions>(o => o.MultipartBodyLengthLimit = 10L * 1024 * 1024);
 
 var app = builder.Build();
 

@@ -1,4 +1,4 @@
-﻿@model PanelFlow.Web.Controllers.QuotationPriceViewModel
+﻿@model PanelFlow.Web.Models.Quotation.QuotationPriceViewModel
 @{
     ViewData["Title"] = "报价";
     var cabinetComponentsUrl = Url.Action("GetCabinetComponents", "Quotation", new { id = Model.QuotationNo }) ?? string.Empty;

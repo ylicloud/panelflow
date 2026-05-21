@@ -18,4 +18,7 @@ public class ManufacturingContractDto
     public string QuotationPlanNo { get; set; } = string.Empty;
     public int CurrentStatus { get; set; }
     public string Remark { get; set; } = string.Empty;
+
+    /// <summary>报价人（来自BJFAT.bjr），用于判断当前用户是否有权限编辑/删除。</summary>
+    public string Quoter { get; set; } = string.Empty;
 }

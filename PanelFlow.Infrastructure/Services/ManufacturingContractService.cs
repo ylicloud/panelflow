@@ -48,6 +48,31 @@ public class ManufacturingContractService : IManufacturingContractService
             .Select(x => ToDto(x))
             .ToListAsync();
 
+        // 获取报价人信息：关联BJFAT表
+        var planNos = items
+            .Where(i => !string.IsNullOrWhiteSpace(i.QuotationPlanNo))
+            .Select(i => i.QuotationPlanNo.Trim())
+            .Distinct()
+            .ToList();
+
+        if (planNos.Count > 0)
+        {
+            var quoterDict = await _db.BjfatQuotations
+                .AsNoTracking()
+                .Where(b => planNos.Contains(b.fabh))
+                .Select(b => new { b.fabh, b.bjr })
+                .ToDictionaryAsync(b => b.fabh.Trim(), b => b.bjr.Trim());
+
+            foreach (var item in items)
+            {
+                if (!string.IsNullOrWhiteSpace(item.QuotationPlanNo) &&
+                    quoterDict.TryGetValue(item.QuotationPlanNo.Trim(), out var quoter))
+                {
+                    item.Quoter = quoter;
+                }
+            }
+        }
+
         return new PagedResult<ManufacturingContractDto>
         {
             Page = page,

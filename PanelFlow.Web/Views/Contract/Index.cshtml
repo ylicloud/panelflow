@@ -86,6 +86,7 @@
             {
                 foreach (var item in Model.Items)
                 {
+                    var canEditDelete = string.Equals(item.Quoter, Model.CurrentUserName, StringComparison.OrdinalIgnoreCase);
                     <tr>
                         <td>@(string.IsNullOrWhiteSpace(item.QuotationPlanNo) ? "—" : item.QuotationPlanNo)</td>
                         <td>@item.ProjectName</td>
@@ -96,21 +97,28 @@
                         <td class="text-end">@item.TotalAmount.ToString("N2")</td>
                         <td class="text-center">@item.CurrentStatus</td>
                         <td class="text-center">
-                            <a class="btn btn-sm btn-outline-primary py-0 px-2"
-                               href="@Url.Action("Edit", new { id = item.ContractNo })">
-                                <i class="bi bi-pencil"></i>
-                            </a>
-                            <form asp-action="Delete" method="post" class="d-inline"
-                                  onsubmit="return confirmDelete(this);"
-                                  data-contract-no="@item.ContractNo"
-                                  data-legacy-contract-no="@item.LegacyContractNo"
-                                  data-project-name="@item.ProjectName">
-                                @Html.AntiForgeryToken()
-                                <input type="hidden" name="id" value="@item.ContractNo" />
-                                <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-2 ms-1">
-                                    <i class="bi bi-trash"></i>
-                                </button>
-                            </form>
+                            @if (canEditDelete)
+                            {
+                                <a class="btn btn-sm btn-outline-primary py-0 px-2"
+                                   href="@Url.Action("Edit", new { id = item.ContractNo })">
+                                    <i class="bi bi-pencil"></i>
+                                </a>
+                                <form asp-action="Delete" method="post" class="d-inline"
+                                      onsubmit="return confirmDelete(this);"
+                                      data-contract-no="@item.ContractNo"
+                                      data-legacy-contract-no="@item.LegacyContractNo"
+                                      data-project-name="@item.ProjectName">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="id" value="@item.ContractNo" />
+                                    <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-2 ms-1">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </form>
+                            }
+                            else
+                            {
+                                <span class="text-muted small">—</span>
+                            }
                         </td>
                     </tr>
                 }
@@ -129,6 +137,7 @@
     {
         foreach (var item in Model.Items)
         {
+            var canEditDelete = string.Equals(item.Quoter, Model.CurrentUserName, StringComparison.OrdinalIgnoreCase);
             <div class="oa-card mb-2">
                 <div class="small text-muted">方案编号：@(string.IsNullOrWhiteSpace(item.QuotationPlanNo) ? "—" : item.QuotationPlanNo)</div>
                 <div class="fw-semibold mt-1">@item.ProjectName</div>
@@ -138,21 +147,24 @@
                 <div class="small text-muted">交货：@(item.DeliveryDate?.ToString("yyyy-MM-dd") ?? "—")</div>
                 <div class="small text-muted">金额：@item.TotalAmount.ToString("N2")</div>
                 <div class="small text-muted">状态：@item.CurrentStatus</div>
-                <div class="mt-2 d-flex gap-2">
-                    <a class="btn btn-sm btn-outline-primary flex-fill"
-                       href="@Url.Action("Edit", new { id = item.ContractNo })">
-                        编辑
-                    </a>
-                    <form asp-action="Delete" method="post" class="flex-fill"
-                          onsubmit="return confirmDelete(this);"
-                          data-contract-no="@item.ContractNo"
-                          data-legacy-contract-no="@item.LegacyContractNo"
-                          data-project-name="@item.ProjectName">
-                        @Html.AntiForgeryToken()
-                        <input type="hidden" name="id" value="@item.ContractNo" />
-                        <button type="submit" class="btn btn-sm btn-outline-danger w-100">删除</button>
-                    </form>
-                </div>
+                @if (canEditDelete)
+                {
+                    <div class="mt-2 d-flex gap-2">
+                        <a class="btn btn-sm btn-outline-primary flex-fill"
+                           href="@Url.Action("Edit", new { id = item.ContractNo })">
+                            编辑
+                        </a>
+                        <form asp-action="Delete" method="post" class="flex-fill"
+                              onsubmit="return confirmDelete(this);"
+                              data-contract-no="@item.ContractNo"
+                              data-legacy-contract-no="@item.LegacyContractNo"
+                              data-project-name="@item.ProjectName">
+                            @Html.AntiForgeryToken()
+                            <input type="hidden" name="id" value="@item.ContractNo" />
+                            <button type="submit" class="btn btn-sm btn-outline-danger w-100">删除</button>
+                        </form>
+                    </div>
+                }
             </div>
         }
     }
