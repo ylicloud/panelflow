@@ -167,6 +167,8 @@
             // 检查该单元下的元件行是否有规格为空或数量问题
             let hasError = false;
             const errorReasons = [];
+            let firstErrorRow = -1;
+            let firstErrorCol = -1;
             for (let r = unit.startRow + 1; r <= unit.endRow; r++) {
                 const row = rows[r];
                 if (!row) continue;
@@ -178,14 +180,17 @@
                     if (!spec) {
                         hasError = true;
                         if (!errorReasons.includes("规格为空")) errorReasons.push("规格为空");
+                        if (firstErrorRow < 0) { firstErrorRow = r; firstErrorCol = 3; }
                     }
                     const qtyNum = Number(qty);
                     if (!qty) {
                         hasError = true;
                         if (!errorReasons.includes("数量为空")) errorReasons.push("数量为空");
+                        if (firstErrorRow < 0) { firstErrorRow = r; firstErrorCol = 5; }
                     } else if (!Number.isFinite(qtyNum) || qtyNum <= 0) {
                         hasError = true;
                         if (!errorReasons.includes("数量无效")) errorReasons.push("数量无效");
+                        if (firstErrorRow < 0) { firstErrorRow = r; firstErrorCol = 5; }
                     }
                 } else if (!name && !spec && !qty) {
                     // 完全空行（名称、规格、数量都为空）在有内容行之间出现
@@ -214,7 +219,7 @@
             if (isDuplicate) tags.push('<span class="badge bg-danger ms-1" style="font-size:10px;">重复</span>');
             if (hasError) {
                 const tooltip = errorReasons.join("、");
-                tags.push(`<span class="badge bg-warning text-dark ms-1" style="font-size:10px;cursor:help;" title="${tooltip}">错误</span>`);
+                tags.push(`<span class="badge bg-warning text-dark ms-1 oa-error-badge" style="font-size:10px;cursor:pointer;" title="${tooltip}" data-error-row="${firstErrorRow}" data-error-col="${firstErrorCol}">错误</span>`);
             }
 
             btn.innerHTML = `${icon}${nameSpan}${tags.join("")}`;
@@ -236,6 +241,21 @@
     // 目录树点击事件：跳转到对应的单元号行
     if (treeChildrenContainer) {
         treeChildrenContainer.addEventListener("click", (event) => {
+            // 错误徽章点击：跳转到第一个错误单元格
+            const errorBadge = event.target.closest(".oa-error-badge");
+            if (errorBadge) {
+                const errorRow = Number.parseInt(errorBadge.getAttribute("data-error-row") || "-1", 10);
+                const errorCol = Number.parseInt(errorBadge.getAttribute("data-error-col") || "-1", 10);
+                if (errorRow >= 0 && errorCol >= 0) {
+                    hot.selectCell(errorRow, errorCol);
+                    if (typeof hot.scrollViewportTo === "function") {
+                        hot.scrollViewportTo(errorRow, errorCol);
+                    }
+                    setMessage(`已定位到错误单元格（第 ${errorRow + 1} 行，${colHeaders[errorCol]}列）`, true);
+                }
+                return;
+            }
+
             const trigger = event.target.closest("[data-unit-no]");
             if (!trigger) return;
 
@@ -270,7 +290,7 @@
             treePaneEl.classList.toggle("is-collapsed", collapsed);
             splitterEl.classList.toggle("is-hidden", collapsed);
             refreshToggleText();
-            hot.render();
+            hot.refreshDimensions();
         };
 
         splitterEl.addEventListener("mousedown", (event) => {
@@ -292,13 +312,14 @@
             const maxWidth = Math.max(minWidth, workspaceWidth * 0.6);
             const nextWidth = Math.min(maxWidth, Math.max(minWidth, startWidth + delta));
             treePaneEl.style.width = `${nextWidth}px`;
+            hot.refreshDimensions();
         });
 
         window.addEventListener("mouseup", () => {
             if (!dragging) return;
             dragging = false;
             document.body.style.cursor = "";
-            hot.render();
+            hot.refreshDimensions();
         });
 
         toggleTreeBtn.addEventListener("click", () => setCollapsed(!collapsed));
@@ -634,8 +655,18 @@
 
             const blob = await response.blob();
             const disposition = response.headers.get("Content-Disposition") || "";
-            const match = disposition.match(/filename\*=UTF-8''([^;]+)|filename="?([^"]+)"?/i);
-            const fileName = decodeURIComponent((match && (match[1] || match[2])) || `合并元件表_${new Date().toISOString().slice(0, 10)}.xlsx`);
+            let fileName = `合并元件表_${new Date().toISOString().slice(0, 10)}.xlsx`;
+            // 优先匹配 filename*=UTF-8''xxx
+            const utf8Match = disposition.match(/filename\*=UTF-8''([^;\s]+)/i);
+            if (utf8Match) {
+                fileName = decodeURIComponent(utf8Match[1]);
+            } else {
+                // 回退匹配 filename="xxx" 或 filename=xxx
+                const plainMatch = disposition.match(/filename="([^"]+)"/i) || disposition.match(/filename=([^;\s]+)/i);
+                if (plainMatch) {
+                    fileName = plainMatch[1];
+                }
+            }
             const downloadUrl = window.URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = downloadUrl;

@@ -8,12 +8,12 @@
 <link rel="stylesheet" href="~/lib/handsontable/handsontable.full.min.css" />
 <link rel="stylesheet" href="~/css/quotation-merge-batch.css" asp-append-version="true" />
 <style>
-    .price-workspace { display: flex; gap: 0; height: calc(100vh - 260px); min-height: 300px; overflow: hidden; }
-    .price-tree-pane { width: 32%; min-width: 220px; max-width: 60%; transition: width .15s ease; overflow-y: auto; }
+    .price-workspace { display: flex; gap: 0; height: calc(100vh - 260px); min-height: 300px; overflow: hidden; max-width: 100%; }
+    .price-tree-pane { width: 32%; min-width: 220px; max-width: 60%; transition: width .15s ease; overflow-y: auto; flex-shrink: 0; }
     .price-tree-pane.is-collapsed { display: none; }
-    .price-splitter { width: 8px; cursor: col-resize; background: linear-gradient(to right, transparent 2px, #dee2e6 2px, #dee2e6 6px, transparent 6px); user-select: none; }
+    .price-splitter { width: 8px; cursor: col-resize; background: linear-gradient(to right, transparent 2px, #dee2e6 2px, #dee2e6 6px, transparent 6px); user-select: none; flex-shrink: 0; }
     .price-splitter.is-hidden { display: none; }
-    .price-table-pane { flex: 1; min-width: 320px; overflow: hidden; }
+    .price-table-pane { flex: 1; min-width: 0; overflow: hidden; }
     .tree-node-link { border: 0; background: transparent; padding: 0; color: inherit; text-align: left; width: 100%; cursor: pointer; }
     .tree-node-link:hover { color: #0d6efd; }
 </style>
