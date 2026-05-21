@@ -1,6 +1,6 @@
 ## 创建审计表(产品库已创建)
 
-## KHYLB 增加字段
+## KHYLB 增加字段,初始化值,更新科室数据;
 USE [DKZX_MIS_MSSQL]
 GO
 
@@ -35,10 +35,13 @@ BEGIN
 END
 GO
 
--- 可选：为历史数据设置默认值（如需要）
--- UPDATE [dbo].[KHYLB] SET [created_at] = GETDATE() WHERE [created_at] IS NULL;
--- UPDATE [dbo].[KHYLB] SET [updated_at] = GETDATE() WHERE [updated_at] IS NULL;
+ 为历史数据设置默认值（如需要）
+UPDATE [dbo].[KHYLB] SET [created_at] = GETDATE() WHERE [created_at] IS NULL;
+UPDATE [dbo].[KHYLB] SET [updated_at] = GETDATE() WHERE [updated_at] IS NULL;
 -- GO
+
+ALTER TABLE [dbo].[KHYLB] ADD [updated_by] varchar(50) NULL;
+ALTER TABLE [dbo].[KHYLB] ADD [created_by] varchar(50) NULL;
 
 PRINT 'KHYLB 表结构更新完成';
 GO

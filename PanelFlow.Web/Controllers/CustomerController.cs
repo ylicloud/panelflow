@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.ModelBinding.Validation;
 using PanelFlow.Core.Interfaces;
 using PanelFlow.Core.Models;
 using PanelFlow.Core.Services;
+using PanelFlow.Web.Extensions;
 using PanelFlow.Web.Filters;
 using System.ComponentModel.DataAnnotations;
 
@@ -23,6 +24,11 @@ public class CustomerController : Controller
         _customerService = customerService;
         _customerContactService = customerContactService;
         _quotationService = quotationService;
+    }
+
+    private string? GetCurrentUserName()
+    {
+        return HttpContext.Session.GetLoginUser()?.DisplayName;
     }
 
     [HttpGet]
@@ -62,7 +68,7 @@ public class CustomerController : Controller
             return View(model);
         }
 
-        var (success, message) = await _customerService.CreateAsync(ToDto(model));
+        var (success, message) = await _customerService.CreateAsync(ToDto(model), GetCurrentUserName());
         if (!success)
         {
             ModelState.AddModelError(string.Empty, message);
@@ -127,7 +133,7 @@ public class CustomerController : Controller
             return View(await PopulateEditRelatedDataAsync(model));
         }
 
-        var (success, message) = await _customerService.UpdateAsync(ToDto(model));
+        var (success, message) = await _customerService.UpdateAsync(ToDto(model), GetCurrentUserName());
         if (!success)
         {
             ModelState.AddModelError(string.Empty, message);

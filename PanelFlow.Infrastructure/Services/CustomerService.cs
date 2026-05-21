@@ -59,7 +59,7 @@ public class CustomerService : ICustomerService
         return entity == null ? null : ToDto(entity);
     }
 
-    public async Task<(bool Success, string Message)> CreateAsync(CustomerDto dto)
+    public async Task<(bool Success, string Message)> CreateAsync(CustomerDto dto, string? currentUser)
     {
         var companyNo = Safe(dto.CompanyNo, 10);
         var companyName = Safe(dto.CompanyName, 50);
@@ -94,7 +94,9 @@ public class CustomerService : ICustomerService
             lxdh = string.Empty,
             beizhu = Safe(dto.Remark, 100),
             created_at = now,
-            updated_at = now
+            updated_at = now,
+            created_by = currentUser,
+            updated_by = currentUser
         };
 
         _db.KhylbCustomers.Add(entity);
@@ -102,7 +104,7 @@ public class CustomerService : ICustomerService
         return (true, "客户创建成功");
     }
 
-    public async Task<(bool Success, string Message)> UpdateAsync(CustomerDto dto)
+    public async Task<(bool Success, string Message)> UpdateAsync(CustomerDto dto, string? currentUser)
     {
         var companyNo = Safe(dto.CompanyNo, 10);
         var companyName = Safe(dto.CompanyName, 50);
@@ -133,6 +135,7 @@ public class CustomerService : ICustomerService
         entity.gsld = alias;
         entity.beizhu = Safe(dto.Remark, 100);
         entity.updated_at = DateTime.Now;
+        entity.updated_by = currentUser;
 
         _db.KhylbCustomers.Update(entity);
         await _db.SaveChangesAsync();
@@ -158,7 +161,9 @@ public class CustomerService : ICustomerService
             Phone = SafeTrim(x.lxdh),
             Remark = SafeTrim(x.beizhu),
             CreatedAt = x.created_at,
-            UpdatedAt = x.updated_at
+            UpdatedAt = x.updated_at,
+            CreatedBy = x.created_by,
+            UpdatedBy = x.updated_by
         };
     }
 }
