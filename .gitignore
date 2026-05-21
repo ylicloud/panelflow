@@ -27,3 +27,11 @@ publish/
 *.xls
 *.xlsx
 
+# 测试文件
+PanelFlow.Core/obj-temp/
+PanelFlow.Infrastructure/obj-temp/
+PanelFlow.Web.Tests/
+PanelFlow.Web/node_modules/
+PanelFlow.Web/obj-temp/
+PanelFlow.Web/vitest.config.ts
+PanelFlow.Web/wwwroot/js/__tests__/
