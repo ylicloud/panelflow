@@ -11,9 +11,9 @@ SERVER_PATH="/var/www/PanelFlow"
 SERVICE_NAME="panelflow"
 
 # 本地路径：Cygwin 格式（用于 shell 操作）和 Windows 格式（用于 dotnet 命令）
-PROJECT_DIR="/cygdrive/f/OneDrive/source/PanelFlow/PanelFlow.Web"
+PROJECT_DIR="/cygdrive/d/repos/panelflow/PanelFlow.Web"
 PUBLISH_DIR="/cygdrive/d/work/PanelFlow/publish"
-WIN_PROJECT_DIR="f:\\OneDrive\\source\\PanelFlow\\PanelFlow.Web"
+WIN_PROJECT_DIR="D:\\repos\\panelflow\\PanelFlow.Web"
 WIN_PUBLISH_DIR="D:\\work\\PanelFlow\\publish"
 
 # 服务器应用端口（健康检查用）
