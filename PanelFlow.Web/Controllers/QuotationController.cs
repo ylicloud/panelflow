@@ -279,10 +279,11 @@ public class QuotationController : Controller
                 Name = (x.x_mc ?? string.Empty).Trim(),
                 Spec = (x.x_ggxh ?? string.Empty).Trim(),
                 Unit = (x.x_dw ?? string.Empty).Trim(),
-                Price = x.x_dj,
+                Price = x.x_bj_dj,
                 Qty = x.x_sl,
                 FloatRate = x.x_fdds,
-                Vendor = (x.x_sccj ?? string.Empty).Trim()
+                Vendor = (x.x_sccj ?? string.Empty).Trim(),
+                Wzdh = (x.x_wzdh ?? string.Empty).Trim()
             })
             .ToListAsync();
 
@@ -294,13 +295,16 @@ public class QuotationController : Controller
             .Select((x, index) => new
             {
                 seq = index + 1,
+                x_bm = x.Code,
                 x_mc = x.Name,
                 x_ggxh = x.Spec,
                 x_dw = x.Unit,
                 x_dj = x.Price ?? 0m,
                 x_sl = x.Qty ?? 0m,
                 x_fdds = x.FloatRate ?? 0m,
-                x_sccj = x.Vendor
+                x_sccj = x.Vendor,
+                // 如果 DB 中 x_wzdh 为空，实时计算
+                x_wzdh = string.IsNullOrWhiteSpace(x.Wzdh) ? NormalizeSpec(x.Spec) : x.Wzdh
             })
             .ToList();
 
@@ -799,6 +803,72 @@ VALUES
             await tx.RollbackAsync();
             _logger.LogError(ex, "保存方案失败。fabh={Fabh}, user={User}", fabh, loginUserName);
             return StatusCode(500, new { success = false, message = $"保存方案失败：{ex.Message}" });
+        }
+    }
+
+    /// <summary>
+    /// 自动填价：从 STD_PRICE_HISTORY 表查询历史报价，返回匹配结果供前端填充表格（不更新数据库）。
+    /// </summary>
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> AutoFillPriceFromHistory([FromBody] AutoFillPriceRequest? request)
+    {
+        if (request == null || string.IsNullOrWhiteSpace(request.Fabh))
+            return BadRequest(new { success = false, message = "报价单编号不能为空" });
+
+        var fabh = request.Fabh.Trim();
+
+        try
+        {
+            // 查询当前报价单所有元件的规格，实时计算 x_wzdh 后匹配历史价格表
+            var componentSpecs = await _db.BjbItems
+                .AsNoTracking()
+                .Where(x => x.fabh.Trim() == fabh && x.x_bm.Length == 12)
+                .Select(x => (x.x_ggxh ?? string.Empty).Trim())
+                .Where(x => x != string.Empty)
+                .Distinct()
+                .ToListAsync();
+
+            // 实时计算所有 x_wzdh
+            var wzdhSet = componentSpecs
+                .Select(spec => NormalizeSpec(spec))
+                .Where(w => !string.IsNullOrEmpty(w))
+                .Distinct()
+                .ToList();
+
+            if (wzdhSet.Count == 0)
+                return Ok(new { success = true, matched = 0, prices = new Dictionary<string, object>() });
+
+            // 用 IN 查询历史价格表
+            var wzdhParams = string.Join(",", wzdhSet.Select((_, i) => $"{{{i}}}"));
+            var sql = $@"
+SELECT 
+    h.x_wzdh AS Wzdh,
+    h.last_price AS Price,
+    LTRIM(RTRIM(ISNULL(h.x_dw, ''))) AS Unit,
+    LTRIM(RTRIM(ISNULL(h.x_sccj, ''))) AS Vendor
+FROM STD_PRICE_HISTORY h
+WHERE h.x_wzdh IN ({wzdhParams})";
+
+            var historyRows = await _db.Database.SqlQueryRaw<AutoFillPriceRow>(
+                sql, wzdhSet.Cast<object>().ToArray()).ToListAsync();
+
+            var priceMap = historyRows.ToDictionary(r => r.Wzdh, r => r);
+
+            return Ok(new
+            {
+                success = true,
+                matched = priceMap.Count,
+                prices = priceMap.ToDictionary(
+                    kv => kv.Key,
+                    kv => new { price = kv.Value.Price, unit = kv.Value.Unit, vendor = kv.Value.Vendor }
+                )
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "自动填价查询失败。fabh={Fabh}", fabh);
+            return StatusCode(500, new { success = false, message = "自动填价失败，请稍后重试" });
         }
     }
 
@@ -1799,6 +1869,11 @@ public class QuotationPlanSaveRequest
     public List<string?> TreeNodeNames { get; set; } = [];
 }
 
+public class AutoFillPriceRequest
+{
+    public string Fabh { get; set; } = string.Empty;
+}
+
 public class QuotationProjectSummarySaveRequest
 {
     public List<QuotationProjectSummaryUpdateItem> Items { get; set; } = [];
@@ -1868,4 +1943,12 @@ internal class SummaryMatchKey
 internal class CabinetReferenceBjRow
 {
     public decimal? RefBj { get; set; }
+}
+
+internal class AutoFillPriceRow
+{
+    public string Wzdh { get; set; } = string.Empty;
+    public decimal Price { get; set; }
+    public string Unit { get; set; } = string.Empty;
+    public string Vendor { get; set; } = string.Empty;
 }

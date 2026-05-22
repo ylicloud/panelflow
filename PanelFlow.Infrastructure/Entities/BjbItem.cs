@@ -11,7 +11,9 @@ public class BjbItem
     public string x_ggxh { get; set; } = string.Empty;
     public string x_dw { get; set; } = string.Empty;
     public decimal? x_dj { get; set; }
+    public decimal? x_bj_dj { get; set; }
     public decimal? x_sl { get; set; }
     public decimal? x_fdds { get; set; }
     public string x_sccj { get; set; } = string.Empty;
+    public string x_wzdh { get; set; } = string.Empty;
 }

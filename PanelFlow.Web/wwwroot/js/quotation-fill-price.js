@@ -36,6 +36,8 @@
     let currentCabinetUnitCode = "";
     let summaryDirty = false;
     let summaryOriginalRows = [];
+    /** 当前柜体视图中每行对应的 x_wzdh（用于历史价格匹配） */
+    let currentRowWzdh = [];
 
     const isRefColumnMode = () => !summaryMode && cabinetViewActive && refPriceColumnVisible;
 
@@ -211,7 +213,7 @@
         cells: (row, col) => getCellsMeta(row, col),
         stretchH: "all",
         width: "100%",
-        height: 420,
+        height: "100%",
         minSpareRows: 0,
         licenseKey
     });
@@ -251,8 +253,9 @@
         return Number.isFinite(num) ? num : 0;
     };
 
-    const mapComponentsToRows8 = (rows) =>
-        rows.map((x) => ([
+    const mapComponentsToRows8 = (rows) => {
+        currentRowWzdh = rows.map((x) => (x.x_wzdh ?? "").toString().trim());
+        return rows.map((x) => ([
             (x.seq ?? "").toString(),
             (x.x_mc ?? "").toString(),
             (x.x_ggxh ?? "").toString(),
@@ -262,6 +265,7 @@
             (x.x_fdds ?? "").toString(),
             (x.x_sccj ?? "").toString()
         ]));
+    };
 
     const mergeRowsWithRefBj = (rows8, refRows) =>
         rows8.map((row, i) => {
@@ -558,7 +562,7 @@
             treePaneEl.classList.toggle("is-collapsed", collapsed);
             splitterEl.classList.toggle("is-hidden", collapsed);
             refreshToggleText();
-            hot.render();
+            hot.refreshDimensions();
         };
         splitterEl.addEventListener("mousedown", (event) => {
             if (collapsed) {
@@ -584,6 +588,7 @@
             const maxWidth = Math.max(minWidth, workspaceWidth * 0.6);
             const nextWidth = Math.min(maxWidth, Math.max(minWidth, startWidth + delta));
             treePaneEl.style.width = `${nextWidth}px`;
+            hot.refreshDimensions();
         });
         window.addEventListener("mouseup", () => {
             if (!dragging) {
@@ -591,7 +596,7 @@
             }
             dragging = false;
             document.body.style.cursor = "";
-            hot.render();
+            hot.refreshDimensions();
         });
         toggleTreeBtn.addEventListener("click", () => setCollapsed(!collapsed));
         refreshToggleText();
@@ -628,6 +633,92 @@
             } catch (error) {
                 const message = error instanceof Error ? error.message : "保存数据失败";
                 setMessage(message, true);
+            }
+        });
+    }
+
+    // 引用历史报价按钮
+    const autoFillPriceBtn = document.getElementById("auto-fill-price-btn");
+    if (autoFillPriceBtn) {
+        autoFillPriceBtn.addEventListener("click", async () => {
+            const url = autoFillPriceBtn.dataset.autoFillUrl;
+            const fabh = autoFillPriceBtn.dataset.quotationNo;
+            if (!url || !fabh) return;
+
+            if (!cabinetViewActive) {
+                setMessage("请先点击左侧控制柜节点加载元件数据", true);
+                return;
+            }
+
+            autoFillPriceBtn.disabled = true;
+            setMessage("正在匹配历史报价...", false);
+
+            try {
+                const token = getToken();
+                const response = await fetch(url, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        ...(token ? { RequestVerificationToken: token } : {})
+                    },
+                    body: JSON.stringify({ fabh })
+                });
+
+                const result = await readJsonResponse(response, "自动填价失败");
+                if (!result.success) {
+                    setMessage(result.message || "自动填价失败", true);
+                    return;
+                }
+
+                const prices = result.prices || {};
+                const priceKeys = Object.keys(prices);
+                const data = hot.getData();
+                const changes = [];
+                let filledCount = 0;
+                const colPrice = 4;
+                const colUnit = 3;
+                const cv = colVendor();
+
+                for (let r = 0; r < data.length; r++) {
+                    const wzdh = currentRowWzdh[r];
+                    if (!wzdh) continue;
+                    const hist = prices[wzdh];
+                    if (!hist) continue;
+
+                    const currentPrice = parseDecimalOrZero(data[r][colPrice]);
+                    const currentUnit = (data[r][colUnit] || "").toString().trim();
+                    const currentVendorVal = (data[r][cv] || "").toString().trim();
+
+                    if (currentPrice === 0 && hist.price > 0) {
+                        changes.push([r, colPrice, hist.price.toString()]);
+                        filledCount++;
+                    }
+                    if (!currentUnit && hist.unit) {
+                        changes.push([r, colUnit, hist.unit]);
+                    }
+                    if (!currentVendorVal && hist.vendor) {
+                        changes.push([r, cv, hist.vendor]);
+                    }
+                }
+
+                if (changes.length > 0) {
+                    hot.setDataAtCell(changes);
+                }
+
+                const total = currentRowWzdh.filter(w => w).length;
+                const matchedInPrices = currentRowWzdh.filter(w => w && prices[w]).length;
+                let msg = `历史价格库匹配 ${priceKeys.length} 条，当前柜体 ${total} 个元件中 ${matchedInPrices} 个有历史价`;
+                if (filledCount > 0) {
+                    msg += `，已填充 ${filledCount} 个单价为0的元件`;
+                } else if (matchedInPrices > 0) {
+                    msg += `，但所有匹配元件的单价已非0，未做修改`;
+                }
+                setMessage(msg, filledCount === 0 && matchedInPrices === 0);
+            } catch (error) {
+                const message = error instanceof Error ? error.message : "自动填价请求失败，请检查网络";
+                setMessage(message, true);
+            } finally {
+                autoFillPriceBtn.disabled = false;
             }
         });
     }

@@ -146,8 +146,7 @@
                                 <a class="btn btn-sm btn-outline-info py-0 px-2 ms-1"
                                    href="@Url.Action("ImportComponents", new { id = item.QuotationNo })"
                                    title="导入excel元件">
-                                    <i class="bi bi-file-earmark-excel"></i>
-                                    <i class="bi bi-box-arrow-in-down ms-1"></i>
+                                    <i class="bi bi-file-earmark-spreadsheet"></i>
                                 </a>
                                 <form asp-action="Delete" method="post" class="d-inline"
                                       onsubmit="return confirmDelete(this);"
@@ -216,8 +215,7 @@
                         </a>
                         <a class="btn btn-sm btn-outline-info"
                            href="@Url.Action("ImportComponents", new { id = item.QuotationNo })">
-                            <i class="bi bi-file-earmark-excel me-1"></i>
-                            <i class="bi bi-box-arrow-in-down me-1"></i>导入excel元件
+                            <i class="bi bi-file-earmark-spreadsheet me-1"></i>导入excel元件
                         </a>
                         <form asp-action="Delete" method="post"
                               onsubmit="return confirmDelete(this);"

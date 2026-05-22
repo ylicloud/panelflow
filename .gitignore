@@ -35,3 +35,6 @@ PanelFlow.Web/obj-temp/
 PanelFlow.Web.Tests/
 PanelFlow.Web/vitest.config.ts
 PanelFlow.Web/wwwroot/js/__tests__/
+
+#数据库备份
+DKZX*.bak
