@@ -313,7 +313,7 @@
         columns: Array.from({ length: 8 }, () => ({ type: "text", renderer: errorCellRenderer })),
         stretchH: "all",
         width: "100%",
-        height: 420,
+        height: "100%",
         minSpareRows: 0,
         contextMenu: {
             items: {
@@ -474,7 +474,7 @@
             treePaneEl.classList.toggle("is-collapsed", collapsed);
             splitterEl.classList.toggle("is-hidden", collapsed);
             refreshToggleText();
-            hot.render();
+            hot.refreshDimensions();
         };
 
         splitterEl.addEventListener("mousedown", (event) => {
@@ -502,6 +502,7 @@
             const maxWidth = Math.max(minWidth, workspaceWidth * 0.6);
             const nextWidth = Math.min(maxWidth, Math.max(minWidth, startWidth + delta));
             treePaneEl.style.width = `${nextWidth}px`;
+            hot.refreshDimensions();
         });
 
         window.addEventListener("mouseup", () => {
@@ -510,7 +511,7 @@
             }
             dragging = false;
             document.body.style.cursor = "";
-            hot.render();
+            hot.refreshDimensions();
         });
 
         toggleTreeBtn.addEventListener("click", () => setCollapsed(!collapsed));

@@ -10,34 +10,27 @@
 <link rel="stylesheet" href="~/lib/handsontable/handsontable.full.min.css" />
 <link rel="stylesheet" href="~/css/quotation-import.css" asp-append-version="true" />
 
-<header class="oa-import-header">
-    <h5 class="fw-bold mb-0">
-        <i class="bi bi-currency-dollar me-2 text-success"></i>导入元件
-    </h5>
-    <span class="text-muted small">报价单：@Model.QuotationNo</span>
-    <span class="text-muted small">@Model.QuotationName</span>
-    <a href="@Url.Action("Index")" class="btn btn-sm btn-outline-secondary ms-auto">返回列表</a>
-</header>
-
 <div class="oa-import-toolbar" role="toolbar" aria-label="导入元件操作工具栏">
-    <button id="open-excel-btn" type="button" class="btn btn-sm btn-outline-primary">
-        <i class="bi bi-file-earmark-excel me-1"></i>打开 Excel 元件表
-    </button>
-    <button id="check-data-btn" type="button" class="btn btn-sm btn-outline-warning" disabled>
-        <i class="bi bi-clipboard2-check me-1"></i>数据检查
-    </button>
-    <button id="preview-tree-btn" type="button" class="btn btn-sm btn-outline-info" disabled>
-        <i class="bi bi-diagram-3 me-1"></i>目录预览
-    </button>
-    <button id="save-excel-btn" type="button" class="btn btn-sm btn-outline-success" disabled>
-        <i class="bi bi-download me-1"></i>另存 Excel
-    </button>
-    <button id="save-plan-btn" type="button" class="btn btn-sm btn-primary" disabled>
-        <i class="bi bi-save me-1"></i>保存方案
-    </button>
-    <button id="toggle-tree-btn" type="button" class="btn btn-sm btn-outline-secondary ms-auto">
+    <button id="toggle-tree-btn" type="button" class="btn btn-sm btn-outline-secondary">
         <i class="bi bi-layout-sidebar-inset me-1"></i>隐藏目录树
     </button>
+    <div class="ms-auto d-flex gap-2 flex-wrap">
+        <button id="open-excel-btn" type="button" class="btn btn-sm btn-outline-primary">
+            <i class="bi bi-file-earmark-excel me-1"></i>打开 Excel 元件表
+        </button>
+        <button id="check-data-btn" type="button" class="btn btn-sm btn-outline-warning" disabled>
+            <i class="bi bi-clipboard2-check me-1"></i>数据检查
+        </button>
+        <button id="preview-tree-btn" type="button" class="btn btn-sm btn-outline-info" disabled>
+            <i class="bi bi-diagram-3 me-1"></i>目录预览
+        </button>
+        <button id="save-excel-btn" type="button" class="btn btn-sm btn-outline-success" disabled>
+            <i class="bi bi-download me-1"></i>另存 Excel
+        </button>
+        <button id="save-plan-btn" type="button" class="btn btn-sm btn-primary" disabled>
+            <i class="bi bi-save me-1"></i>保存方案
+        </button>
+    </div>
 </div>
 
 <div id="page-info-bar" class="alert alert-info py-2 px-3 small" role="status" aria-live="polite">
@@ -79,7 +72,6 @@
     </aside>
     <div id="tree-splitter" role="separator" aria-orientation="vertical" aria-label="拖动调整左右宽度" tabindex="0"></div>
     <main id="grid-pane" aria-label="元件表格">
-        <div class="small text-muted mb-2">元件表格</div>
         <div id="hot-container"
              class="border rounded"
              data-license-key="53ea8-c2678-49b80-cb40f-4dad4"
@@ -88,7 +80,7 @@
              data-save-plan-url="@savePlanUrl"
              data-quotation-no="@Model.QuotationNo"
              data-current-status="@Model.CurrentStatus"
-             style="min-height: 420px;">
+             style="height: 100%;">
         </div>
         <form id="excel-upload-form" class="d-none" method="post" enctype="multipart/form-data">
             @Html.AntiForgeryToken()

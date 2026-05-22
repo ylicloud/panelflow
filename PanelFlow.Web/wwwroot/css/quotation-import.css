@@ -34,7 +34,9 @@
 .oa-import-workspace {
     display: flex;
     gap: 0;
-    min-height: 60vh;
+    height: calc(100vh - 200px);
+    min-height: 300px;
+    overflow: hidden;
 }
 
 #tree-pane,
@@ -47,6 +49,8 @@
     padding: 1rem;
     transition: width 0.15s ease;
     box-sizing: border-box;
+    overflow-y: auto;
+    flex-shrink: 0;
 }
 
 #tree-pane.is-collapsed,
@@ -77,11 +81,12 @@
 #grid-pane,
 .oa-import-grid-pane {
     flex: 1;
-    min-width: 320px;
+    min-width: 0;
     background: #fff;
     border-radius: 8px;
     padding: 1rem;
     box-sizing: border-box;
+    overflow: hidden;
 }
 
 /* ---------- 目录树 ---------- */
