@@ -771,7 +771,7 @@ INSERT INTO BJB
  x_bjb_datetime, x_bjb_fdds, x_wzfy, x_flbh, x_ggxh, x_sccj, x_key_ry, x_jsgsbh, x_bz, x_wzdh, x_lx, x_cgf)
 VALUES
 ({fabh}, {row.Xbm}, {row.Xmc}, {string.Empty}, {row.Xdj}, {0m}, {row.Xsl}, {0m}, {row.XbjDj}, {row.XbjbBj}, {row.XbjbDj},
- NULL, {0m}, {0m}, {string.Empty}, {row.Xggxh}, {row.Xsccj}, {string.Empty}, {0m}, {string.Empty}, {string.Empty}, {row.Xlx}, {1})");
+ NULL, {0m}, {0m}, {string.Empty}, {row.Xggxh}, {row.Xsccj}, {string.Empty}, {0m}, {string.Empty}, {row.Xwzdh}, {row.Xlx}, {1})");
             }
 
             var cabinetCount = rowsToInsert.Count(x => x.Xlx == 1 && x.Xbm.Length == 4);
@@ -863,6 +863,7 @@ VALUES
                         Xmc = component.Name,
                         Xggxh = component.Spec,
                         Xsccj = component.Vendor,
+                        Xwzdh = NormalizeSpec(component.Spec),
                         Xdj = component.Price,
                         Xsl = component.Qty,
                         XbjDj = component.Price,
@@ -995,6 +996,45 @@ VALUES
     {
         var text = (value ?? string.Empty).Trim();
         return text.Length <= maxLen ? text : text[..maxLen];
+    }
+
+    /// <summary>
+    /// C# 版 F_CleanString：转小写 → 删除不可见字符 → 全角转半角 → 去掉括号内容 → 只保留字母/数字/中文/单位符号。
+    /// 用于生成型号规格的标准化指纹字符串，便于与历史报价比对。
+    /// </summary>
+    internal static string NormalizeSpec(string? input)
+    {
+        if (string.IsNullOrWhiteSpace(input)) return string.Empty;
+
+        var s = input.ToLowerInvariant()
+            .Replace("\r", "").Replace("\n", "").Replace("\t", "")
+            .Replace("\u00A0", "")   // 不间断空格
+            .Replace("\u200B", "");  // 零宽空格
+
+        var sb = new System.Text.StringBuilder(s.Length);
+        var parenDepth = 0;
+
+        foreach (var ch in s)
+        {
+            // 全角转半角
+            var c = ch == '\u3000' ? ' '
+                  : ch >= '\uFF01' && ch <= '\uFF5E' ? (char)(ch - 65248)
+                  : ch;
+            c = char.ToLowerInvariant(c);
+
+            if (c == '(') { parenDepth++; continue; }
+            if (c == ')') { if (parenDepth > 0) parenDepth--; continue; }
+            if (parenDepth > 0) continue;
+
+            // 只保留字母、数字、中文、常见单位符号
+            if (char.IsAsciiLetterOrDigit(c) || (c >= '\u4E00' && c <= '\u9FFF'))
+                sb.Append(c);
+            else if ("μωΩ°±℃φ".IndexOf(c) >= 0)
+                sb.Append(c);
+            // 其余符号（空格、标点等）全部丢弃
+        }
+
+        return sb.ToString();
     }
 
     private static string BuildSummaryMatchKey(IEnumerable<string> codes)
@@ -1790,6 +1830,7 @@ internal class BjbWriteRow
     public string Xmc { get; set; } = string.Empty;
     public string Xggxh { get; set; } = string.Empty;
     public string Xsccj { get; set; } = string.Empty;
+    public string Xwzdh { get; set; } = string.Empty;
     public decimal Xdj { get; set; }
     public decimal Xsl { get; set; }
     public decimal XbjDj { get; set; }
