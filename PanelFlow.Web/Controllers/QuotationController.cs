@@ -1433,7 +1433,7 @@ VALUES
 
                 // 插入 UnitHeaderRow
                 seqNo++;
-                rows.Add(new List<string> { seqNo.ToString(), unitCode, "", "", "", "", "", "" });
+                rows.Add(new List<string> { seqNo.ToString(), unitCode, "", "", "", "1", "", "" });
 
                 if (rows.Count >= 5000)
                 {
