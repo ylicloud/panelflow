@@ -17,6 +17,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<KhylbCustomerContact> KhylbCustomerContacts { get; set; }
     public DbSet<BjfatQuotation> BjfatQuotations { get; set; }
     public DbSet<BjbItem> BjbItems { get; set; }
+    public DbSet<StdPriceHistory> StdPriceHistories { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -159,9 +160,26 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.x_ggxh).HasColumnName("x_ggxh").HasColumnType("char(100)");
             entity.Property(e => e.x_dw).HasColumnName("x_dw").HasColumnType("char(10)");
             entity.Property(e => e.x_dj).HasColumnName("x_dj").HasColumnType("numeric(18,4)");
+            entity.Property(e => e.x_bj_dj).HasColumnName("x_bj_dj").HasColumnType("numeric(18,4)");
             entity.Property(e => e.x_sl).HasColumnName("x_sl").HasColumnType("numeric(18,4)");
             entity.Property(e => e.x_fdds).HasColumnName("x_fdds").HasColumnType("numeric(18,4)");
             entity.Property(e => e.x_sccj).HasColumnName("x_sccj").HasColumnType("char(20)");
+            entity.Property(e => e.x_bjb_dj).HasColumnName("x_bjb_dj").HasColumnType("numeric(18,4)");
+            entity.Property(e => e.x_bjb_bj).HasColumnName("x_bjb_bj").HasColumnType("numeric(18,4)");
+            entity.Property(e => e.x_lx).HasColumnName("x_lx");
+            entity.Property(e => e.x_bjb_datetime).HasColumnName("x_bjb_datetime").HasColumnType("datetime");
+        });
+
+        modelBuilder.Entity<StdPriceHistory>(entity =>
+        {
+            entity.ToTable("STD_PRICE_HISTORY");
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.x_wzdh).IsUnique();
+            entity.Property(e => e.x_wzdh).HasColumnType("nvarchar(400)").IsRequired();
+            entity.Property(e => e.last_price).HasColumnType("decimal(18,4)");
+            entity.Property(e => e.avg_price).HasColumnType("decimal(18,4)");
+            entity.Property(e => e.min_price).HasColumnType("decimal(18,4)");
+            entity.Property(e => e.max_price).HasColumnType("decimal(18,4)");
         });
     }
 }

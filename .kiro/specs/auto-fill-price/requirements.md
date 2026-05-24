@@ -6,6 +6,8 @@
 
 当前系统已有初步实现但无法正常工作，本次需求为完全重新设计和实现该功能。
 
+填价页面同时承担元件数据的编辑职责（增删改控制柜和元件），与 Excel 导入功能形成"导入创建 + 页面编辑"的分工模式。
+
 ## Glossary
 
 - **报价单（Quotation）**：BJFAT 表中的一条记录，通过 `fabh`（方案编号）唯一标识
@@ -17,6 +19,9 @@
 - **填价页面（FillPrice Page）**：报价单的"填写报价"子页面，包含目录树和 Handsontable 表格
 - **参考价格（Reference Price）**：从历史价格表中查询到的价格信息，供报价员参考
 - **NormalizeSpec**：C# 端的规格型号标准化函数，去除括号内容、特殊符号、空格，全角转半角，统一小写
+- **金额（Amount）**：由公式 `x_bj_dj * (1 + x_fdds / 100) * x_sl` 计算得出的元件总价
+- **浮动点数（x_fdds）**：价格浮动系数，用于在基础单价上增加百分比调整
+- **全量替换保存**：保存时先删除该方案下所有旧元件记录，再批量插入页面中的最新数据（在一个事务中）
 
 ## Requirements
 
@@ -27,8 +32,8 @@
 #### Acceptance Criteria
 
 1. THE STD_PRICE_HISTORY 表 SHALL 以 x_wzdh 为唯一键，存储每个唯一 x_wzdh 对应的最新报价（last_price）、最新来源方案编号（last_fabh）、最新报价时间（last_date）、原始规格型号（ggxh）、元件名称（x_mc）、计量单位（x_dw）、厂商（x_sccj）、近 5 年均价（avg_price）、近 5 年最低价（min_price）、近 5 年最高价（max_price）、样本数（avg_count）和最后刷新时间（updated_at）
-2. THE SP_RefreshPriceHistory 存储过程 SHALL 从 BJB 表中筛选 x_lx=11 且 x_bjb_dj>0 且 x_wzdh 非空且所属报价单（BJFAT）dqzt=10（已成立）的元件记录进行聚合
-3. THE SP_RefreshPriceHistory 存储过程 SHALL 按 x_wzdh 分组，取 fabh 降序的第一条记录的 x_ggxh、x_mc、x_dw、x_sccj、x_bjb_dj、fabh、x_bjb_datetime 作为最新报价信息
+2. THE SP_RefreshPriceHistory 存储过程 SHALL 从 BJB 表中筛选 x_lx=11 且 x_bj_dj>0 且 x_wzdh 非空且所属报价单（BJFAT）dqzt=10（已成立）的元件记录进行聚合
+3. THE SP_RefreshPriceHistory 存储过程 SHALL 按 x_wzdh 分组，取 fabh 降序的第一条记录的 x_ggxh、x_mc、x_dw、x_sccj、x_bj_dj、fabh、x_bjb_datetime 作为最新报价信息
 4. THE SP_RefreshPriceHistory 存储过程 SHALL 对每个 x_wzdh 分组中 x_bjb_datetime 在最近 5 年内或为 NULL 的记录，计算平均价格、最低价格、最高价格和样本数
 5. WHEN 保存方案（SavePlan）写入 BJB 时，THE 系统 SHALL 对每个元件行使用 NormalizeSpec 函数处理 x_ggxh 字段并将结果写入 x_wzdh 字段
 6. IF 元件行的 x_ggxh 为 NULL 或空字符串，THEN THE 系统 SHALL 将该行的 x_wzdh 设为 NULL 且不参与后续历史价格聚合
@@ -45,7 +50,7 @@
 2. IF 某元件行的 x_wzdh 字段为空或 NULL，THEN THE 系统 SHALL 使用 NormalizeSpec 函数对该元件的 x_ggxh 实时计算 x_wzdh；若 x_wzdh 已有存储值则直接使用该存储值
 3. IF 某元件行的 x_ggxh 为空或 NULL，THEN THE 系统 SHALL 跳过该元件，不纳入批量查询集合
 4. THE 系统 SHALL 使用计算得到的 x_wzdh 集合批量查询 STD_PRICE_HISTORY 表，获取匹配的历史价格，并在 30 秒内返回结果
-5. THE 系统 SHALL 返回匹配结果，包含每个 x_wzdh 对应的最新价格（last_price）、单位（x_dw）和厂商（x_sccj）
+5. THE 系统 SHALL 返回匹配结果，包含每个 x_wzdh 对应的最新价格（last_price）、均价（avg_price）、最低价（min_price）、最高价（max_price）、样本数（avg_count）、单位（x_dw）和厂商（x_sccj）
 6. IF 当前报价单无任何 x_bm 长度为 12 且 x_lx=11 且 x_ggxh 非空的元件行，THEN THE 系统 SHALL 返回空匹配结果且不报错
 7. IF 批量查询 STD_PRICE_HISTORY 过程中发生数据库异常，THEN THE 系统 SHALL 返回错误信息并记录日志，不修改任何现有数据
 
@@ -56,13 +61,14 @@
 #### Acceptance Criteria
 
 1. WHEN 历史价格查询返回成功时，THE 前端 SHALL 遍历当前 Handsontable 表格中所有元件行（x_bm 长度为 12 的行），按每行的 x_wzdh 与返回的历史价格数据进行匹配
-2. IF 某元件行的当前单价为 0、null 或空值，且该行 x_wzdh 匹配到历史价格，THEN THE 前端 SHALL 将历史价格（last_price）填入该行的单价列
+2. IF 某元件行的当前单价为 0、null 或空值，且该行 x_wzdh 匹配到历史价格，THEN THE 前端 SHALL 将历史价格（last_price）填入该行的单价列（x_bj_dj）
 3. IF 某元件行的当前单位为 null 或空字符串，且该行 x_wzdh 匹配到历史单位，THEN THE 前端 SHALL 将历史单位填入该行的单位列
 4. IF 某元件行的当前厂家为 null 或空字符串，且该行 x_wzdh 匹配到历史厂家，THEN THE 前端 SHALL 将历史厂家填入该行的厂家列
 5. THE 前端 SHALL 保留已手动填写的单价（大于 0 的值），不进行覆盖
 6. WHEN 自动填充完成后，THE 前端 SHALL 在信息栏显示匹配统计信息，格式为"已匹配 M/N 个元件的历史报价，X 个元件无历史记录"，其中 M 为匹配数量、N 为元件总数、X 为未匹配数量
 7. IF 某元件行的 x_wzdh 为空或 null，THEN THE 前端 SHALL 将该行计入未匹配数量，不进行填充
 8. WHEN 自动填充修改表格单元格数据时，THE 前端 SHALL 通过 Handsontable 的 setDataAtCell 方法写入，以触发表格的数据变更事件供后续保存流程识别
+9. WHEN 单价（x_bj_dj）被自动填充后，THE 前端 SHALL 自动重新计算该行的金额列（公式：x_bj_dj * (1 + x_fdds / 100) * x_sl）
 
 ### Requirement 4: 填价页面交互
 
@@ -96,12 +102,12 @@
 
 #### Acceptance Criteria
 
-1. THE 填价页面 SHALL 在工具栏区域提供"显示参考价格"复选框
-2. WHEN 报价员勾选"显示参考价格"时，THE 系统 SHALL 向后端请求当前表格中所有元件的参考价格数据，并在单价列后插入一列"参考价格"只读列，显示该元件在 STD_PRICE_HISTORY 中的 last_price 值
-3. WHEN 报价员取消勾选"显示参考价格"时，THE 表格 SHALL 移除参考价格列，且不影响其他列的数据和表格滚动位置
-4. WHILE 未加载控制柜元件数据时，THE "显示参考价格"复选框 SHALL 处于禁用状态
-5. THE 参考价格列 SHALL 为只读状态，使用浅绿色背景区分于可编辑列，且单元格不可被编辑或选中进行输入
-6. IF 某元件行在 STD_PRICE_HISTORY 中无匹配记录，THEN THE 参考价格列 SHALL 在该行显示为空（不显示 0）
+1. THE 填价页面 SHALL 在表格中始终显示"参考价格"只读列，位于单价列之后
+2. WHEN 加载控制柜元件数据时，THE 系统 SHALL 同时向后端请求当前表格中所有元件的参考价格数据（STD_PRICE_HISTORY 中的 last_price），并填充到参考价格列
+3. THE 参考价格列 SHALL 为只读状态，使用浅绿色背景区分于可编辑列，且单元格不可被编辑或选中进行输入
+4. IF 某元件行在 STD_PRICE_HISTORY 中无匹配记录，THEN THE 参考价格列 SHALL 在该行显示为空（不显示 0）
+5. WHEN 报价员将鼠标悬停在参考价格单元格上时，THE 系统 SHALL 显示 tooltip 浮层，内容包含该元件的均价（avg_price）、最低价（min_price）、最高价（max_price）和样本数（avg_count）
+6. IF 某元件行在 STD_PRICE_HISTORY 中无匹配记录，THEN THE tooltip SHALL 不显示
 7. WHILE 参考价格数据正在加载时，THE 系统 SHALL 在参考价格列中显示加载状态指示，加载完成后替换为实际价格值
 
 ### Requirement 7: 权限控制
@@ -130,3 +136,92 @@
 5. THE NormalizeSpec 函数 SHALL 仅保留以下字符：ASCII 字母（a-z）、ASCII 数字（0-9）、CJK 统一汉字（U+4E00 至 U+9FFF）、以及单位符号集合（μ、ω、Ω、°、±、℃、φ），其余字符（空格、标点、其他符号）全部丢弃
 6. THE NormalizeSpec 函数（C#）与 F_CleanString 函数（SQL）SHALL 对相同输入产生相同输出；输入最大长度为 400 个字符（与 SQL 函数参数一致）
 7. IF NormalizeSpec 处理后结果为空字符串，THEN THE 系统 SHALL 将该元件视为无有效指纹，不参与历史价格匹配
+
+### Requirement 9: 价格异常检测与提醒
+
+**User Story:** 作为报价员，我希望系统能自动检测异常价格并以颜色标记提醒我，以便我及时发现和修正错误价格。
+
+#### Acceptance Criteria
+
+1. WHEN 表格中元件行的单价（x_bj_dj）为 0 或空值时，THE 前端 SHALL 将该行单价单元格背景设为浅灰色，提示未填写
+2. WHEN 表格中元件行的单价（x_bj_dj）为负数时，THE 前端 SHALL 将该行单价单元格背景设为红色，提示必须修正
+3. WHEN 表格中元件行的单价（x_bj_dj）偏离该元件历史均价（avg_price）超过 ±20% 时，THE 前端 SHALL 将该行单价单元格背景设为橙色，提示价格偏离较大
+4. THE 偏离检测 SHALL 使用公式 `|x_bj_dj - avg_price| / avg_price > 0.2` 进行判断；IF avg_price 为 0 或无历史记录，THEN THE 系统 SHALL 不进行偏离检测
+5. WHEN 报价员将鼠标悬停在异常标记的单价单元格上时，THE 系统 SHALL 显示 tooltip 说明异常原因（如"价格为负数，请修正"或"偏离历史均价 ¥X.XX 超过 20%"）
+6. THE 价格异常检测 SHALL 在以下时机触发：元件数据加载完成后、单价单元格值变更后、自动填价完成后
+
+### Requirement 10: 价格数据校验
+
+**User Story:** 作为系统管理员，我希望系统能阻止负数价格写入数据库，以确保报价数据的准确性和干净度。
+
+#### Acceptance Criteria
+
+1. WHEN 保存方案（SavePlan）时，THE 系统 SHALL 校验所有元件行的单价（x_bj_dj）不为负数
+2. IF 存在任何元件行的 x_bj_dj 为负数，THEN THE 系统 SHALL 拒绝保存并返回错误信息，列出负价格元件的名称和编号
+3. THE 前端 SHALL 在保存前进行客户端校验，IF 检测到负数价格，THEN THE 前端 SHALL 阻止提交并在信息栏显示错误提示，指明哪些元件价格为负
+4. WHEN 保存方案写入 BJB 时，THE 系统 SHALL 对每个元件行计算 x_dj 字段值，公式为 `x_bj_dj * (1 + x_fdds / 100)`，并将计算结果写入 x_dj 字段
+5. IF 元件行的 x_fdds 为 NULL，THEN THE 系统 SHALL 将 x_fdds 视为 0 进行计算（即 x_dj = x_bj_dj）
+
+### Requirement 11: 金额列显示
+
+**User Story:** 作为报价员，我希望在表格中能看到每个元件的金额（总价），以便快速了解各元件的费用占比。
+
+#### Acceptance Criteria
+
+1. THE 填价表格 SHALL 包含"金额"只读列，位于数量列之后
+2. THE 金额列 SHALL 按公式 `x_bj_dj * (1 + x_fdds / 100) * x_sl` 自动计算显示，其中 x_bj_dj 为单价、x_fdds 为浮动点数、x_sl 为数量
+3. WHEN 单价（x_bj_dj）、浮动点数（x_fdds）或数量（x_sl）任一值发生变化时，THE 前端 SHALL 立即重新计算并更新该行的金额列
+4. IF x_bj_dj、x_fdds 或 x_sl 中任一值为 null 或空，THEN THE 系统 SHALL 将该值视为 0 参与计算
+5. THE 金额列 SHALL 为只读状态，使用浅蓝色背景区分于可编辑列，显示格式保留 2 位小数
+
+### Requirement 12: 元件数据全量保存
+
+**User Story:** 作为报价员，我希望在页面上对控制柜和元件的增删改操作能正确保存到数据库，以便数据始终与页面一致。
+
+#### Acceptance Criteria
+
+1. THE 填价页面 SHALL 将加载到页面中的元件数据与数据库完全独立管理，用户在页面上的增删改操作仅影响前端内存数据
+2. WHEN 报价员点击保存按钮时，THE 系统 SHALL 在一个数据库事务中执行以下操作：先删除该方案（fabh）下 BJB 表中所有现有元件记录，再批量插入页面中的最新完整元件清单
+3. THE 系统 SHALL 在插入时按页面中的顺序重新生成元件编号（x_bm），确保编号连续递增
+4. IF 删除或插入过程中发生错误，THEN THE 系统 SHALL 回滚整个事务，保留数据库中的原始数据不变，并返回错误信息
+5. WHEN 保存成功后，THE 系统 SHALL 返回成功信息并在信息栏显示"保存成功"提示
+6. THE 保存操作 SHALL 同时对每个元件行计算并写入 x_wzdh（NormalizeSpec 处理 x_ggxh）和 x_dj（公式 x_bj_dj * (1 + x_fdds / 100)）字段
+
+### Requirement 13: 控制柜和元件编辑
+
+**User Story:** 作为报价员，我希望能在填价页面上直接增加、修改和删除控制柜及其内的元件，以便灵活调整报价方案内容。
+
+#### Acceptance Criteria
+
+1. THE 填价页面 SHALL 支持在左侧目录树中新增控制柜节点，新增时自动分配下一个可用的 4 位编码
+2. THE 填价页面 SHALL 支持在左侧目录树中删除控制柜节点；WHEN 删除控制柜时，THE 系统 SHALL 同时删除该控制柜下的所有元件行（仅从前端内存中移除，保存时才写入数据库）
+3. THE 填价页面 SHALL 支持在当前选中的控制柜下新增元件行（在表格末尾追加空行）
+4. THE 填价页面 SHALL 支持删除表格中选中的元件行
+5. THE 填价页面 SHALL 支持对元件行的名称、规格型号、单位、数量、单价、浮动点数、厂商等字段进行编辑
+6. WHEN 用户进行增删改操作后未保存时，THE 系统 SHALL 在页面标题或信息栏显示"未保存"状态标记，提醒用户保存
+
+### Requirement 14: 控制柜拖拽排序
+
+**User Story:** 作为报价员，我希望能通过拖拽调整控制柜的顺序，以便按照实际需要重新排列报价方案中的控制柜。
+
+#### Acceptance Criteria
+
+1. THE 左侧目录树 SHALL 支持通过鼠标拖拽控制柜节点来调整控制柜之间的顺序
+2. WHEN 拖拽完成后，THE 系统 SHALL 更新前端内存中所有控制柜及其下属元件的编号（x_bm），确保编号按新顺序连续递增
+3. THE 拖拽操作 SHALL 仅允许同级节点之间的排序调整，不允许将控制柜拖入另一个控制柜内部
+4. WHEN 拖拽排序后，THE 系统 SHALL 在页面标记"未保存"状态，排序结果在用户点击保存后才写入数据库
+5. THE 拖拽过程中 SHALL 显示视觉反馈（如拖拽占位符和插入位置指示线），帮助用户确认放置位置
+
+### Requirement 15: 根节点元件汇总视图
+
+**User Story:** 作为报价员，我希望点击目录树根节点时能看到所有元件的汇总信息，以便快速了解整个报价方案的元件概况和总金额。
+
+#### Acceptance Criteria
+
+1. WHEN 报价员点击左侧目录树的根节点时，THE 系统 SHALL 在右侧表格区域显示所有元件的汇总视图（只读）
+2. THE 汇总视图 SHALL 按元件名称（x_mc）、规格型号（x_ggxh）、单价（x_dj）进行分组，显示每组的合计数量（SUM(x_sl)）
+3. THE 汇总视图 SHALL 显示以下列：元件名称、规格型号、单价、合计数量、金额小计（单价 * 合计数量）
+4. THE 汇总视图 SHALL 在表格底部显示总金额合计行
+5. THE 汇总视图 SHALL 为只读状态，所有单元格不可编辑
+6. WHEN 报价员从根节点切换到某个控制柜节点时，THE 系统 SHALL 切换回该控制柜的可编辑元件明细视图
+

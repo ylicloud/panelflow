@@ -251,13 +251,22 @@ public class QuotationController : Controller
             })
             .ToListAsync();
 
+        // 权限判断：报价人本人或管理员可编辑
+        var loginUser = HttpContext.Session.GetLoginUser();
+        var loginUserName = (loginUser?.UserName ?? string.Empty).Trim();
+        var loginRole = (loginUser?.RoleName ?? string.Empty).Trim();
+        var isAdmin = string.Equals(loginRole, RoleNames.Admin, StringComparison.OrdinalIgnoreCase);
+        var owner = (dto.Quoter ?? string.Empty).Trim();
+        var canEdit = isAdmin || string.Equals(owner, loginUserName, StringComparison.OrdinalIgnoreCase);
+
         var viewModel = new QuotationPriceViewModel
         {
             QuotationNo = quotationNo,
             QuotationName = (dto.QuotationName ?? string.Empty).Trim(),
             CurrentStatus = dto.CurrentStatus,
             ActiveSection = activeSection,
-            TreeNodes = treeNodes
+            TreeNodes = treeNodes,
+            CanEdit = canEdit
         };
         return viewModel;
     }
@@ -339,6 +348,167 @@ ORDER BY b.x_bm",
             success = true,
             rows = rows.Select(x => new { refBj = x.RefBj }).ToList()
         });
+    }
+
+    /// <summary>
+    /// 获取指定控制柜下元件的参考价格（来自 STD_PRICE_HISTORY）。
+    /// 返回数组与 GetCabinetComponents 行序一一对应，无匹配记录的位置返回 null。
+    /// </summary>
+    [HttpGet]
+    public async Task<IActionResult> GetReferencePrice(string id, string unitCode)
+    {
+        var quotationNo = (id ?? string.Empty).Trim();
+        var cabinetCode = (unitCode ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(quotationNo) || string.IsNullOrWhiteSpace(cabinetCode))
+            return BadRequest(new { success = false, message = "报价单编号和节点编码不能为空" });
+
+        var loginUser = HttpContext.Session.GetLoginUser();
+        if (loginUser == null)
+            return Unauthorized(new { success = false, message = "登录已失效，请重新登录" });
+
+        _logger.LogInformation("[GetReferencePrice] 开始查询参考价格。fabh={Fabh}, unitCode={UnitCode}", quotationNo, cabinetCode);
+
+        // 查询当前控制柜下的元件行，与 GetCabinetComponents 使用相同筛选和排序
+        var bjbRows = await _db.BjbItems
+            .AsNoTracking()
+            .Where(x => x.fabh.Trim() == quotationNo)
+            .Select(x => new
+            {
+                Code = (x.x_bm ?? string.Empty).Trim(),
+                Spec = (x.x_ggxh ?? string.Empty).Trim(),
+                Wzdh = (x.x_wzdh ?? string.Empty).Trim(),
+                Lx = x.x_lx
+            })
+            .ToListAsync();
+
+        _logger.LogInformation("[GetReferencePrice] 查询到 BJB 行数={Total}, fabh={Fabh}", bjbRows.Count, quotationNo);
+
+        var components = bjbRows
+            .Where(x => x.Code.Length == 12
+                        && x.Code.StartsWith(cabinetCode, StringComparison.Ordinal)
+                        && x.Code.Substring(4, 4) == "0001")
+            .OrderBy(x => x.Code)
+            .ToList();
+
+        _logger.LogInformation("[GetReferencePrice] 过滤后元件行数={Count} (Length==12 && StartsWith({CabinetCode}) && Substring(4,4)==\"0001\")", components.Count, cabinetCode);
+
+        // 如果过滤条件 Substring(4,4)=="0001" 导致为空，打印前几行的实际 Substring 值
+        if (components.Count == 0 && bjbRows.Count > 0)
+        {
+            var sampleRows = bjbRows
+                .Where(x => x.Code.Length == 12 && x.Code.StartsWith(cabinetCode, StringComparison.Ordinal))
+                .Take(5)
+                .Select(x => new { x.Code, Sub4_4 = x.Code.Length >= 8 ? x.Code.Substring(4, 4) : "N/A" })
+                .ToList();
+            _logger.LogWarning("[GetReferencePrice] Substring(4,4) 过滤导致结果为空！前5行样本: {@Samples}", sampleRows);
+        }
+
+        if (components.Count == 0)
+            return Ok(new { success = true, rows = Array.Empty<ReferencePriceRow?>() });
+
+        // 计算每行的 x_wzdh（DB 为空时实时计算）
+        var wzdhList = components
+            .Select(x => string.IsNullOrWhiteSpace(x.Wzdh) ? NormalizeSpec(x.Spec) : x.Wzdh)
+            .ToList();
+
+        // 收集非空的 x_wzdh 用于批量查询
+        var distinctWzdh = wzdhList
+            .Where(w => !string.IsNullOrWhiteSpace(w))
+            .Distinct()
+            .ToList();
+
+        _logger.LogInformation("[GetReferencePrice] 去重后 x_wzdh 数量={DistinctCount}, 空 wzdh 行数={EmptyCount}",
+            distinctWzdh.Count, wzdhList.Count(w => string.IsNullOrWhiteSpace(w)));
+
+        // 打印前5个 wzdh 样本
+        if (distinctWzdh.Count > 0)
+        {
+            var sample = distinctWzdh.Take(5).ToList();
+            _logger.LogInformation("[GetReferencePrice] wzdh 样本（前5）: {Samples}", string.Join(" | ", sample));
+        }
+
+        // 批量查询 STD_PRICE_HISTORY
+        var priceMap = new Dictionary<string, StdPriceHistoryDto>(StringComparer.OrdinalIgnoreCase);
+        if (distinctWzdh.Count > 0)
+        {
+            var priceRecords = await _db.StdPriceHistories
+                .AsNoTracking()
+                .Where(p => distinctWzdh.Contains(p.x_wzdh))
+                .Select(p => new StdPriceHistoryDto
+                {
+                    Wzdh = p.x_wzdh,
+                    LastPrice = p.last_price,
+                    AvgPrice = p.avg_price,
+                    MinPrice = p.min_price,
+                    MaxPrice = p.max_price,
+                    AvgCount = p.avg_count
+                })
+                .ToListAsync();
+
+            _logger.LogInformation("[GetReferencePrice] STD_PRICE_HISTORY 匹配到 {MatchCount}/{DistinctCount} 条记录",
+                priceRecords.Count, distinctWzdh.Count);
+
+            // 如果匹配为0但有 wzdh，打印样本帮助排查
+            if (priceRecords.Count == 0 && distinctWzdh.Count > 0)
+            {
+                _logger.LogWarning("[GetReferencePrice] STD_PRICE_HISTORY 匹配为0！检查 wzdh 是否存在于表中。样本 wzdh: {Samples}",
+                    string.Join(" | ", distinctWzdh.Take(3)));
+            }
+
+            foreach (var rec in priceRecords)
+            {
+                var key = (rec.Wzdh ?? string.Empty).Trim();
+                if (!string.IsNullOrEmpty(key))
+                {
+                    priceMap[key] = rec;
+                }
+            }
+
+            // DEBUG: 打印 priceMap 的 key 和 wzdhList 的值，确认是否匹配
+            if (priceRecords.Count > 0)
+            {
+                var mapKeys = priceMap.Keys.Take(3).ToList();
+                var listKeys = wzdhList.Where(w => !string.IsNullOrWhiteSpace(w)).Take(3).ToList();
+                _logger.LogInformation("[GetReferencePrice] priceMap keys 样本: [{MapKeys}], wzdhList 样本: [{ListKeys}]",
+                    string.Join(", ", mapKeys.Select(k => $"'{k}' (len={k.Length})")),
+                    string.Join(", ", listKeys.Select(k => $"'{k}' (len={k.Length})")));
+            }
+        }
+
+        // 按行序构建结果数组，无匹配返回 null
+        var matchCount = 0;
+        var missCount = 0;
+        var rows = wzdhList
+            .Select((wzdh, idx) =>
+            {
+                if (string.IsNullOrWhiteSpace(wzdh))
+                    return null;
+
+                if (!priceMap.TryGetValue(wzdh, out var price))
+                {
+                    missCount++;
+                    if (missCount <= 3)
+                        _logger.LogWarning("[GetReferencePrice] TryGetValue 未命中: wzdh='{Wzdh}' (len={Len}), priceMap.Count={MapCount}",
+                            wzdh, wzdh.Length, priceMap.Count);
+                    return null;
+                }
+
+                matchCount++;
+                return new ReferencePriceRow
+                {
+                    LastPrice = price.LastPrice,
+                    AvgPrice = price.AvgPrice,
+                    MinPrice = price.MinPrice,
+                    MaxPrice = price.MaxPrice,
+                    AvgCount = price.AvgCount
+                };
+            })
+            .ToList();
+
+        _logger.LogInformation("[GetReferencePrice] 最终结果: 总行数={Total}, 匹配={Match}, 未命中={Miss}, null(空wzdh)={Null}",
+            rows.Count, matchCount, missCount, rows.Count - matchCount - missCount);
+
+        return Ok(new { success = true, rows });
     }
 
     [HttpGet]
@@ -761,6 +931,35 @@ WHERE LTRIM(RTRIM(fabh)) = {quotationNo}
         if (rowsToInsert.Count == 0)
             return BadRequest(new { success = false, message = "未解析到可保存的目录/元件数据" });
 
+        // --- 负价格校验（Req 10.1, 10.2）：在任何 DB 操作之前 fail fast ---
+        var negativePriceRows = rowsToInsert
+            .Where(r => r.Xlx == 11 && r.XbjDj < 0)
+            .Select(r => new { name = r.Xmc.Trim(), code = r.Xbm.Trim() })
+            .ToList();
+        if (negativePriceRows.Count > 0)
+        {
+            return BadRequest(new
+            {
+                success = false,
+                message = "存在负数单价的元件，无法保存",
+                negativePriceItems = negativePriceRows
+            });
+        }
+
+        // --- 计算 x_dj 和 x_wzdh（Req 10.4, 10.5, 12.6）---
+        foreach (var row in rowsToInsert)
+        {
+            // x_wzdh: NormalizeSpec 处理 x_ggxh（BuildRowsFromTable 已设置，此处确保一致性）
+            if (row.Xlx == 11)
+            {
+                row.Xwzdh = NormalizeSpec(row.Xggxh);
+            }
+
+            // x_dj = x_bj_dj * (1 + x_fdds / 100)，x_fdds 为 NULL 视为 0
+            var fdds = row.Xfdds;
+            row.Xdj = row.XbjDj * (1 + fdds / 100m);
+        }
+
         await using var tx = await _db.Database.BeginTransactionAsync();
         try
         {
@@ -774,7 +973,7 @@ INSERT INTO BJB
 (fabh, x_bm, x_mc, x_dw, x_dj, x_fdds, x_sl, x_bj_fdds, x_bj_dj, x_bjb_bj, x_bjb_dj,
  x_bjb_datetime, x_bjb_fdds, x_wzfy, x_flbh, x_ggxh, x_sccj, x_key_ry, x_jsgsbh, x_bz, x_wzdh, x_lx, x_cgf)
 VALUES
-({fabh}, {row.Xbm}, {row.Xmc}, {string.Empty}, {row.Xdj}, {0m}, {row.Xsl}, {0m}, {row.XbjDj}, {row.XbjbBj}, {row.XbjbDj},
+({fabh}, {row.Xbm}, {row.Xmc}, {string.Empty}, {row.Xdj}, {row.Xfdds}, {row.Xsl}, {0m}, {row.XbjDj}, {row.XbjbBj}, {row.XbjbDj},
  NULL, {0m}, {0m}, {string.Empty}, {row.Xggxh}, {row.Xsccj}, {string.Empty}, {0m}, {string.Empty}, {row.Xwzdh}, {row.Xlx}, {1})");
             }
 
@@ -807,7 +1006,7 @@ VALUES
     }
 
     /// <summary>
-    /// 自动填价：从 STD_PRICE_HISTORY 表查询历史报价，返回匹配结果供前端填充表格（不更新数据库）。
+    /// 自动填价：查询历史报价并批量更新当前报价单中单价为0的元件行，返回价格映射和统计信息。
     /// </summary>
     [HttpPost]
     [ValidateAntiForgeryToken]
@@ -818,28 +1017,91 @@ VALUES
 
         var fabh = request.Fabh.Trim();
 
+        // ── 权限校验 ──
+        var loginUser = HttpContext.Session.GetLoginUser();
+        if (loginUser == null || string.IsNullOrWhiteSpace(loginUser.UserName))
+            return Unauthorized(new { success = false, message = "登录已失效，请重新登录后再试" });
+
+        var loginUserName = loginUser.UserName.Trim();
+        var loginRole = (loginUser.RoleName ?? string.Empty).Trim();
+        var isAdmin = string.Equals(loginRole, RoleNames.Admin, StringComparison.OrdinalIgnoreCase);
+
+        var quotation = await _db.BjfatQuotations
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.fabh.Trim() == fabh);
+        if (quotation == null)
+            return NotFound(new { success = false, message = "报价单不存在" });
+
+        var owner = (quotation.bjr ?? string.Empty).Trim();
+        var isOwner = string.Equals(owner, loginUserName, StringComparison.OrdinalIgnoreCase);
+        if (!isAdmin && !isOwner)
+            return StatusCode(403, new { success = false, message = "仅报价人本人或管理员可执行自动填价" });
+
+        if (quotation.dqzt == 10)
+            return BadRequest(new { success = false, message = "已成立的报价单不允许修改价格" });
+
         try
         {
-            // 查询当前报价单所有元件的规格，实时计算 x_wzdh 后匹配历史价格表
-            var componentSpecs = await _db.BjbItems
+            // ── 查询 BJB 中 x_lx=11、x_bm.Trim().Length=12 的元件行 ──
+            var allComponents = await _db.BjbItems
                 .AsNoTracking()
-                .Where(x => x.fabh.Trim() == fabh && x.x_bm.Length == 12)
-                .Select(x => (x.x_ggxh ?? string.Empty).Trim())
-                .Where(x => x != string.Empty)
-                .Distinct()
+                .Where(x => x.fabh.Trim() == fabh && x.x_lx == 11)
+                .Select(x => new
+                {
+                    Code = (x.x_bm ?? string.Empty).Trim(),
+                    Spec = (x.x_ggxh ?? string.Empty).Trim(),
+                    Wzdh = (x.x_wzdh ?? string.Empty).Trim(),
+                    BjbDj = x.x_bjb_dj ?? 0m
+                })
                 .ToListAsync();
 
-            // 实时计算所有 x_wzdh
-            var wzdhSet = componentSpecs
-                .Select(spec => NormalizeSpec(spec))
-                .Where(w => !string.IsNullOrEmpty(w))
+            // 仅保留 x_bm 长度为 12 的元件行
+            var elementRows = allComponents
+                .Where(x => x.Code.Length == 12)
+                .ToList();
+
+            var total = elementRows.Count;
+
+            // 跳过 x_ggxh 为空的行（Req 2.3）
+            var validRows = elementRows
+                .Where(x => !string.IsNullOrWhiteSpace(x.Spec))
+                .ToList();
+
+            // 对 x_wzdh 为空的行实时调用 NormalizeSpec 计算指纹（Req 2.2）
+            var rowsWithWzdh = validRows
+                .Select(x => new
+                {
+                    x.Code,
+                    x.Spec,
+                    x.BjbDj,
+                    Wzdh = string.IsNullOrWhiteSpace(x.Wzdh) ? NormalizeSpec(x.Spec) : x.Wzdh
+                })
+                .Where(x => !string.IsNullOrEmpty(x.Wzdh))
+                .ToList();
+
+            if (rowsWithWzdh.Count == 0)
+            {
+                // 无有效元件行，返回空结果不报错（Req 2.6）
+                return Ok(new AutoFillPriceResult
+                {
+                    Success = true,
+                    Matched = 0,
+                    Updated = 0,
+                    Unmatched = total,
+                    Total = total,
+                    Message = total == 0
+                        ? "当前报价单无元件数据"
+                        : $"已匹配 0/{total} 个元件的历史报价，{total} 个元件无历史记录",
+                    Prices = new Dictionary<string, PriceInfo>()
+                });
+            }
+
+            // ── 批量查询 STD_PRICE_HISTORY 获取匹配价格（Req 2.4, 2.5）──
+            var wzdhSet = rowsWithWzdh
+                .Select(x => x.Wzdh)
                 .Distinct()
                 .ToList();
 
-            if (wzdhSet.Count == 0)
-                return Ok(new { success = true, matched = 0, prices = new Dictionary<string, object>() });
-
-            // 用 IN 查询历史价格表
             var wzdhParams = string.Join(",", wzdhSet.Select((_, i) => $"{{{i}}}"));
             var sql = $@"
 SELECT 
@@ -855,20 +1117,90 @@ WHERE h.x_wzdh IN ({wzdhParams})";
 
             var priceMap = historyRows.ToDictionary(r => r.Wzdh, r => r);
 
-            return Ok(new
+            // ── 统计匹配情况 ──
+            var matchedWzdhCodes = rowsWithWzdh
+                .Where(x => priceMap.ContainsKey(x.Wzdh))
+                .ToList();
+
+            var matched = matchedWzdhCodes.Count;
+            // 无指纹的行 + 有指纹但无匹配的行
+            var unmatched = total - matched;
+
+            // ── 在事务中批量更新 x_bjb_dj=0 的行（Req 5.1, 5.2, 5.3）──
+            var rowsToUpdate = matchedWzdhCodes
+                .Where(x => x.BjbDj == 0m)
+                .ToList();
+
+            var updated = 0;
+
+            if (rowsToUpdate.Count > 0)
             {
-                success = true,
-                matched = priceMap.Count,
-                prices = priceMap.ToDictionary(
-                    kv => kv.Key,
-                    kv => new { price = kv.Value.Price, unit = kv.Value.Unit, vendor = kv.Value.Vendor }
-                )
+                await using var tx = await _db.Database.BeginTransactionAsync();
+                try
+                {
+                    foreach (var row in rowsToUpdate)
+                    {
+                        var historyPrice = priceMap[row.Wzdh].Price;
+                        var affectedRows = await _db.Database.ExecuteSqlInterpolatedAsync($@"
+UPDATE BJB
+SET x_bjb_dj = {historyPrice},
+    x_bjb_bj = {historyPrice},
+    x_bj_dj = {historyPrice}
+WHERE LTRIM(RTRIM(fabh)) = {fabh}
+  AND LTRIM(RTRIM(x_bm)) = {row.Code}
+  AND x_lx = 11
+  AND ISNULL(x_bjb_dj, 0) = 0");
+                        updated += affectedRows;
+                    }
+
+                    await tx.CommitAsync();
+                }
+                catch (Exception ex)
+                {
+                    await tx.RollbackAsync();
+                    _logger.LogError(ex, "自动填价批量更新失败。fabh={Fabh}, 预期更新={ExpectedCount}", fabh, rowsToUpdate.Count);
+                    return StatusCode(500, new AutoFillPriceResult
+                    {
+                        Success = false,
+                        Message = "自动填价更新失败，数据已回滚，请稍后重试"
+                    });
+                }
+            }
+
+            // ── 构建价格映射返回前端（Req 5.4）──
+            var skipped = matched - updated;
+            var prices = priceMap.ToDictionary(
+                kv => kv.Key,
+                kv => new PriceInfo
+                {
+                    Price = kv.Value.Price,
+                    Unit = kv.Value.Unit,
+                    Vendor = kv.Value.Vendor
+                });
+
+            var message = $"已匹配 {matched}/{total} 个元件的历史报价，实际更新 {updated} 个" +
+                          (skipped > 0 ? $"（{skipped} 个已有价格跳过）" : string.Empty) +
+                          (unmatched > 0 ? $"，{unmatched} 个元件无历史记录" : string.Empty);
+
+            return Ok(new AutoFillPriceResult
+            {
+                Success = true,
+                Matched = matched,
+                Updated = updated,
+                Unmatched = unmatched,
+                Total = total,
+                Message = message,
+                Prices = prices
             });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "自动填价查询失败。fabh={Fabh}", fabh);
-            return StatusCode(500, new { success = false, message = "自动填价失败，请稍后重试" });
+            return StatusCode(500, new AutoFillPriceResult
+            {
+                Success = false,
+                Message = "自动填价失败，请稍后重试"
+            });
         }
     }
 
@@ -1908,6 +2240,7 @@ internal class BjbWriteRow
     public string Xwzdh { get; set; } = string.Empty;
     public decimal Xdj { get; set; }
     public decimal Xsl { get; set; }
+    public decimal Xfdds { get; set; }
     public decimal XbjDj { get; set; }
     public decimal XbjbBj { get; set; }
     public decimal XbjbDj { get; set; }
@@ -1951,4 +2284,14 @@ internal class AutoFillPriceRow
     public decimal Price { get; set; }
     public string Unit { get; set; } = string.Empty;
     public string Vendor { get; set; } = string.Empty;
+}
+
+internal class StdPriceHistoryDto
+{
+    public string Wzdh { get; set; } = string.Empty;
+    public decimal LastPrice { get; set; }
+    public decimal? AvgPrice { get; set; }
+    public decimal? MinPrice { get; set; }
+    public decimal? MaxPrice { get; set; }
+    public int AvgCount { get; set; }
 }
