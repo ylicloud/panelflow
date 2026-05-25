@@ -236,6 +236,61 @@
 - [x] 11. Final checkpoint - 全功能验证
   - Ensure all tests pass, ask the user if questions arise.
 
+- [x] 12. UI 调整与字段口径修复
+  - [x] 12.1 移除独立标题栏，重组工具栏
+    - 删除 FillPrice.cshtml 顶部的 `<h5>填写报价</h5>` 标题栏（包含报价单号、未保存、返回列表三个元素的独立行）
+    - 把"报价单：xxx""未保存"badge、"返回列表"按钮合并到工具栏 oa-card 内（与"隐藏目录树""引用历史报价"同一行）
+    - 工作区高度从 `calc(100vh - 240px)` 改为 `calc(100vh - 180px)` 给表格腾出更多面积
+    - _Requirements: 16.5_
+
+  - [x] 12.2 颜色图例区
+    - 工具栏 oa-card 内增加 `#color-legend` 区，显示 5 个色块及含义：浅灰(空/0)、红(负数)、橙(偏离±20%)、浅绿(参考价列)、浅蓝(金额列)
+    - 通过 JS `updateCabinetStatusBar()` 控制：仅在柜体视图（`cabinetViewActive=true`）显示，根汇总视图/未选择时隐藏
+    - _Requirements: 16.4_
+
+  - [x] 12.3 当前节点状态栏 + 合计金额
+    - 在 `.price-table-pane > .oa-card` 内、`#hot-container` 上方插入 `#cabinet-status-bar`
+    - 左侧显示"当前节点：xxx"，右侧显示"合计金额：¥xx.xx"
+    - 新增 JS `recalcTotalAmount()`：柜体视图累加金额列、根汇总视图累加金额小计列（排除合计行自身）
+    - 触发时机：数据加载完成、单价/数量/浮动变更、增删行、自动填价完成
+    - 新增 JS `updateCabinetStatusBar(label)`：在 loadCabinetComponents / loadProjectComponentSummary / deleteCabinet 三处调用
+    - _Requirements: 16.1, 16.3, 16.6_
+
+  - [x] 12.4 分离"选中节点"与"元件使用柜"高亮
+    - 新增 CSS 类 `tree-node-link-selected`（实心蓝底白字，持久）与现有 `tree-node-link-usage`（淡蓝底，临时）共存
+    - 新增 JS `setSelectedTreeNode(unitCode)`：用户主动点击节点时调用，与 `highlightTreeUnits` 互不干扰
+    - 修复 `renderTreeChildren` 中错误使用 `tree-node-link-usage` 表示选中态的问题
+    - 树点击处理器统一通过 `setSelectedTreeNode` 设置选中态
+    - _Requirements: 16.2, 17.5_
+
+  - [x] 12.5 重构 GetProjectComponentUsage 为 x_wzdh 口径
+    - **设计变更（旧）**：原实现按 (name, spec, unit, price, floatRate, vendor) 六字段全等匹配。该口径将"同型号但不同定价/厂家"误判为不同元件，且对 `price` 字段选用 `x_dj` 还是 `x_bj_dj` 都会产生 bug
+    - **设计变更（新）**：改用标准化指纹 `x_wzdh` 作为唯一识别字段，与历史价格匹配（STD_PRICE_HISTORY）口径完全统一
+    - 后端 `QuotationController.GetProjectComponentUsage` 签名改为 `(string id, string wzdh)`
+    - wzdh 为空时直接返回 success=true / rows=[] / message="该元件未填规格型号，无法识别使用情况"（Req 17.6），不做 DB 扫描
+    - 对 BJB 中 x_wzdh 为空的行使用 NormalizeSpec(x_ggxh) 实时计算作为兜底
+    - 比对采用 OrdinalIgnoreCase
+    - 响应 rows 每项新增字段：priceMin, priceMax, vendors[]（便于在面板里看出同型号在不同柜的定价/厂家差异）
+    - 前端 `identityFromHotRow` / `fetchComponentUsageByIdentity` 删除；新增 `displayInfoFromHotRow` 与 `fetchComponentUsageByWzdh`
+    - 前端 `loadProjectComponentUsage` 删除（汇总视图不再触发使用查询）
+    - 前端 `renderUsagePanel` 增强：支持 message 文本展示、柜级价格区间与厂家集合展示
+    - _Requirements: 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 17.7, 17.8_
+
+- [ ] 13. 属性测试补充（可选）
+  - [ ] 13.1 Property 13: 元件使用按 x_wzdh 匹配
+    - **Property 13: Component usage is matched by x_wzdh only**
+    - 使用 FsCheck 生成 (x_wzdh, x_bj_dj, x_fdds, x_sccj) 多元组，构造同一 fabh 下：同 wzdh 但不同定价/浮动/厂家的元件分布在多个柜
+    - 验证以任意一行作为查询源时，所有 effective x_wzdh 相等的行所在柜都被列入结果；不同 wzdh 的行所在柜不被列入
+    - 验证 wzdh 入参为空时返回 rows=[] + 明确消息，且不发生 DB 扫描（mock 校验）
+    - **Validates: Requirements 17.1, 17.2, 17.3, 17.6**
+
+  - [ ] 13.2 Property 14: 当前节点合计金额正确性
+    - **Property 14: Current node total amount correctness**
+    - 使用 FsCheck 生成多组 (price, fdds, qty) 三元组
+    - 验证柜体视图状态栏显示金额 = Σ(price * (1 + fdds/100) * qty)，保留 2 位小数
+    - 验证根汇总视图状态栏显示金额 = Σ(group_x_dj * group_qty)，且不含底部"合计"行自身
+    - **Validates: Requirements 16.3**
+
 ## Notes
 
 - Tasks marked with `*` are optional and can be skipped for faster MVP
@@ -260,7 +315,9 @@
     { "id": 4, "tasks": ["6.2", "7.2", "7.3"] },
     { "id": 5, "tasks": ["10.1"] },
     { "id": 6, "tasks": ["10.2", "10.3", "10.7", "10.10", "10.11"] },
-    { "id": 7, "tasks": ["10.4", "10.5", "10.6", "10.8", "10.9", "10.12"] }
+    { "id": 7, "tasks": ["10.4", "10.5", "10.6", "10.8", "10.9", "10.12"] },
+    { "id": 8, "tasks": ["12.1", "12.2", "12.3", "12.4", "12.5"] },
+    { "id": 9, "tasks": ["13.1", "13.2"] }
   ]
 }
 ```

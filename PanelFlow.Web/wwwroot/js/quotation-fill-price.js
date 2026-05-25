@@ -30,6 +30,10 @@
     const addRowBtn = document.getElementById("add-row-btn");
     const deleteRowBtn = document.getElementById("delete-row-btn");
     const unsavedBadge = document.getElementById("unsaved-badge");
+    const colorLegendEl = document.getElementById("color-legend");
+    const currentNodeLabelEl = document.getElementById("current-node-label");
+    const currentNodeTotalEl = document.getElementById("current-node-total");
+    const quotationName = (document.getElementById("tree-root-node")?.textContent || "").trim();
 
     const BASE_HEADERS_8 = ["序号", "名称", "规格", "单位", "单价", "数量", "金额", "报价浮动", "厂家"];
     const BASE_HEADERS_9 = ["序号", "名称", "规格", "单位", "单价", "参考价格", "数量", "金额", "报价浮动", "厂家"];
@@ -172,9 +176,9 @@
             btn.className = "tree-node-link";
             btn.setAttribute("data-unit-no", cab.code);
             if (cab.code === selectedCabinetCode) {
-                btn.classList.add("tree-node-link-usage");
+                btn.classList.add("tree-node-link-selected");
             }
-            btn.innerHTML = `<i class="bi bi-dot"></i>${escapeHtml(cab.name)}<span class="text-muted small ms-1">(${escapeHtml(cab.code)})</span>`;
+            btn.innerHTML = `<i class="bi bi-dot"></i>${escapeHtml(cab.name)}<span class="ms-1">(${escapeHtml(cab.code)})</span>`;
             li.appendChild(btn);
             treeChildrenContainer.appendChild(li);
         });
@@ -360,6 +364,8 @@
         currentCabinetUnitCode = "";
         hot.loadData([]);
         renderTreeChildren();
+        setSelectedTreeNode("");
+        updateCabinetStatusBar("尚未选择");
         markDirty();
         setMessage(`已删除控制柜"${cab.name}（${cab.code}）"及其下属元件，请点击保存以写入数据库。`, false);
     };
@@ -419,6 +425,7 @@
             currentRowWzdh.splice(r, 1);
         }
         markDirty();
+        recalcTotalAmount();
         setMessage(`已删除 ${rowsToDelete.length} 行元件数据，请点击保存以写入数据库。`, false);
     };
 
@@ -470,6 +477,9 @@
         syncRefPriceCheckboxUi();
     };
 
+    /**
+     * 清除"元件使用柜"高亮（保留"当前选中柜"高亮不被清掉）。
+     */
     const clearTreeHighlights = () => {
         if (!treeChildrenContainer) {
             return;
@@ -477,6 +487,31 @@
         treeChildrenContainer.querySelectorAll("button.tree-node-link").forEach((btn) => {
             btn.classList.remove("tree-node-link-usage");
         });
+    };
+
+    /**
+     * 设置"当前选中柜"高亮：用户主动点击的节点，持久显示。
+     * 与 highlightTreeUnits 使用不同的 CSS 类，互不干扰。
+     */
+    const setSelectedTreeNode = (unitCode) => {
+        if (!treeChildrenContainer) return;
+        treeChildrenContainer.querySelectorAll("button.tree-node-link").forEach((btn) => {
+            btn.classList.remove("tree-node-link-selected");
+        });
+        if (treeRootNode) {
+            treeRootNode.classList.remove("tree-node-link-selected");
+        }
+        if (!unitCode) {
+            return;
+        }
+        if (unitCode === "__ROOT__" && treeRootNode) {
+            treeRootNode.classList.add("tree-node-link-selected");
+            return;
+        }
+        const btn = treeChildrenContainer.querySelector(`button.tree-node-link[data-unit-no="${unitCode}"]`);
+        if (btn) {
+            btn.classList.add("tree-node-link-selected");
+        }
     };
 
     const highlightTreeUnits = (unitCodes) => {
@@ -492,6 +527,47 @@
         });
     };
 
+    /**
+     * 计算并更新当前节点的"合计金额"。
+     * - 柜体视图：累加金额列（colAmount()）。
+     * - 根节点汇总视图：累加最后一行外的"金额小计"列（col 4）；最后一行本身已是合计，跳过。
+     */
+    const recalcTotalAmount = () => {
+        if (!currentNodeTotalEl) return;
+        const data = hot.getData();
+        let total = 0;
+        if (rootSummaryMode) {
+            // 最后一行是 "合计" 自身，跳过
+            for (let r = 0; r < data.length - 1; r += 1) {
+                const row = data[r];
+                if (!Array.isArray(row)) continue;
+                total += parseDecimalOrZero(row[4]);
+            }
+        } else if (cabinetViewActive) {
+            const cAmt = colAmount();
+            for (let r = 0; r < data.length; r += 1) {
+                const row = data[r];
+                if (!Array.isArray(row)) continue;
+                total += parseDecimalOrZero(row[cAmt]);
+            }
+        }
+        currentNodeTotalEl.textContent = `¥${total.toFixed(2)}`;
+    };
+
+    /**
+     * 更新状态栏（柜名 + 合计），同时显隐颜色图例。
+     */
+    const updateCabinetStatusBar = (label) => {
+        if (currentNodeLabelEl) {
+            currentNodeLabelEl.textContent = label || "尚未选择";
+        }
+        if (colorLegendEl) {
+            // 仅在柜体视图（含参考价格列）展示颜色图例
+            colorLegendEl.classList.toggle("d-none", !cabinetViewActive);
+        }
+        recalcTotalAmount();
+    };
+
     const hideUsagePanel = () => {
         clearTreeHighlights();
         if (!componentUsagePanel || !componentUsageTitle || !componentUsageList) {
@@ -502,28 +578,55 @@
         componentUsageList.innerHTML = "";
     };
 
-    const renderUsagePanel = (summaryRow, usageRows) => {
+    /**
+     * 渲染"元件使用控制柜"面板。
+     * @param {{name:string, spec:string, unit:string}} displayInfo 用于面板 title 展示
+     * @param {Array<{unitCode:string, unitName:string, qty:number, priceMin?:number, priceMax?:number, vendors?:string[]}>} usageRows
+     * @param {string} [message] 后端附带消息（如"该元件未填规格型号..."）
+     */
+    const renderUsagePanel = (displayInfo, usageRows, message) => {
         if (!componentUsagePanel || !componentUsageTitle || !componentUsageList) {
             return;
         }
-        const title = `${summaryRow.name} / ${summaryRow.spec || "无规格"} / ${summaryRow.unit || "无单位"}`;
-        componentUsageTitle.textContent = `${title}，共使用于 ${usageRows.length} 个控制柜。`;
+        const safe = displayInfo || { name: "", spec: "", unit: "" };
+        const title = `${safe.name || "未命名"} / ${safe.spec || "无规格"} / ${safe.unit || "无单位"}`;
+        if (message) {
+            componentUsageTitle.textContent = `${title}：${message}`;
+        } else {
+            componentUsageTitle.textContent = `${title}，共使用于 ${usageRows.length} 个控制柜。`;
+        }
         componentUsageList.innerHTML = "";
         if (usageRows.length === 0) {
             const li = document.createElement("li");
             li.className = "text-muted";
-            li.textContent = "未找到使用该元件的控制柜。";
+            li.textContent = message ? "（仅当前柜内使用，或型号未填无法识别）" : "未找到使用该元件的控制柜。";
             componentUsageList.appendChild(li);
         } else {
             usageRows.forEach((item) => {
                 const li = document.createElement("li");
                 li.className = "mb-1";
-                li.textContent = `${item.unitCode} ${item.unitName}（数量合计：${item.qty}）`;
+                const priceText = formatUsagePriceRange(item.priceMin, item.priceMax);
+                const vendorText = Array.isArray(item.vendors) && item.vendors.length > 0
+                    ? `；厂家：${item.vendors.join("、")}`
+                    : "";
+                li.textContent = `${item.unitCode} ${item.unitName}（数量合计：${item.qty}${priceText}${vendorText}）`;
                 componentUsageList.appendChild(li);
             });
         }
         componentUsagePanel.classList.remove("d-none");
         highlightTreeUnits(usageRows.map((x) => x.unitCode));
+    };
+
+    /** 格式化某柜下该型号的价格区间——单一价格直接显示，区间用"~"连接 */
+    const formatUsagePriceRange = (priceMin, priceMax) => {
+        const hasMin = priceMin !== null && priceMin !== undefined;
+        const hasMax = priceMax !== null && priceMax !== undefined;
+        if (!hasMin && !hasMax) return "";
+        const min = Number(priceMin);
+        const max = Number(priceMax);
+        if (!Number.isFinite(min) && !Number.isFinite(max)) return "";
+        if (min === max) return `；单价：¥${min.toFixed(2)}`;
+        return `；单价：¥${min.toFixed(2)} ~ ¥${max.toFixed(2)}`;
     };
 
     const errorCellRenderer = (instance, td, row, col, prop, value, cellProperties) => {
@@ -853,43 +956,50 @@
         }
     };
 
-    const identityFromHotRow = (rowIndex) => {
+    /**
+     * 从当前柜体视图的某一行提取"显示信息"（用于面板标题）。
+     * 注意：identity 不再参与查询匹配，仅用于面板 title 友好展示；
+     * 真正的匹配口径是 x_wzdh（标准化指纹），由 currentRowWzdh[rowIndex] 提供。
+     */
+    const displayInfoFromHotRow = (rowIndex) => {
         const data = hot.getData();
         const row = Array.isArray(data[rowIndex]) ? data[rowIndex] : [];
-        const cf = colFloat();
-        const cv = colVendor();
-        const cq = colQty();
         return {
             name: (row[1] ?? "").toString().trim(),
             spec: (row[2] ?? "").toString().trim(),
-            unit: (row[3] ?? "").toString().trim(),
-            price: parseDecimalOrZero(row[4]),
-            qty: parseDecimalOrZero(row[cq]),
-            floatRate: parseDecimalOrZero(row[cf]),
-            vendor: (row[cv] ?? "").toString().trim()
+            unit: (row[3] ?? "").toString().trim()
         };
     };
 
-    const fetchComponentUsageByIdentity = async (identity) => {
+    /**
+     * 根据 x_wzdh（标准化指纹）查询元件使用控制柜（Req 17）。
+     * - wzdh 为空时：直接展示"该元件未填规格型号，无法识别使用情况"，不发起请求
+     * - 后端返回的 rows 形如 [{ unitCode, unitName, qty, priceMin, priceMax, vendors[] }]
+     */
+    const fetchComponentUsageByWzdh = async (wzdh, displayInfo) => {
         if (!projectUsageUrl) {
             return;
         }
+
+        const targetWzdh = (wzdh || "").toString().trim();
+        if (!targetWzdh) {
+            renderUsagePanel(displayInfo, [], "该元件未填规格型号，无法识别使用情况");
+            return;
+        }
+
         try {
             const connector = projectUsageUrl.includes("?") ? "&" : "?";
-            const query = new URLSearchParams({
-                name: identity.name,
-                spec: identity.spec,
-                unit: identity.unit,
-                price: identity.price.toString(),
-                floatRate: identity.floatRate.toString(),
-                vendor: identity.vendor
-            });
+            const query = new URLSearchParams({ wzdh: targetWzdh });
             const response = await fetch(`${projectUsageUrl}${connector}${query.toString()}`, { method: "GET" });
             const result = await response.json();
             if (!response.ok || !result.success) {
                 throw new Error(result.message || "读取元件使用控制柜失败");
             }
-            renderUsagePanel(identity, Array.isArray(result.rows) ? result.rows : []);
+            renderUsagePanel(
+                displayInfo,
+                Array.isArray(result.rows) ? result.rows : [],
+                result.message || ""
+            );
         } catch (error) {
             const message = error instanceof Error ? error.message : "读取元件使用控制柜失败";
             setMessage(message, true);
@@ -936,6 +1046,9 @@
         try {
             setMessage(`正在加载节点 ${target} 的柜内元件...`, false);
             leaveSummaryMode();
+            // leaveSummaryMode 会清空选中态，这里需要恢复
+            selectedCabinetCode = target;
+            setSelectedTreeNode(target);
             currentCabinetUnitCode = target;
             cabinetViewActive = true;
             // 当 referencePriceUrl 可用时，始终加载参考价格列（Req 6.1, 6.2）
@@ -947,6 +1060,12 @@
             applyButtonStates();
             // Req 9.6: 数据加载完成后触发价格异常检测着色
             applyPriceAnomalyStyles();
+            // 状态栏更新：柜名 + 总金额（Req 16.1, 16.3）
+            const cab = cabinetList.find((c) => c.code === target);
+            const label = cab && cab.name
+                ? `${cab.name}（${target}）`
+                : `控制柜 ${target}`;
+            updateCabinetStatusBar(label);
             setMessage(
                 `已加载 ${target} 柜内元件清单，共 ${hot.countRows()} 条。`,
                 false
@@ -1030,6 +1149,8 @@
             // Req 15.5: 只读状态
             projectSummaryReadOnly = true;
             enterSummaryMode();
+            // 状态栏更新：根节点 + 总金额（Req 16.1, 16.3）
+            updateCabinetStatusBar(quotationName ? `${quotationName}（项目汇总）` : "项目汇总");
             setMessage(`已加载项目元件汇总，共 ${mapped.length - 1} 组（按名称/规格/单价分组），总金额：¥${totalAmount.toFixed(2)}`, false);
         } catch (error) {
             const message = error instanceof Error ? error.message : "读取项目元件汇总失败";
@@ -1038,27 +1159,13 @@
         }
     };
 
-    const loadProjectComponentUsage = async (rowIndex) => {
-        if (!summaryMode || rowIndex < 0 || rowIndex >= summaryOriginalRows.length) {
-            return;
-        }
-        const row = summaryOriginalRows[rowIndex];
-        await fetchComponentUsageByIdentity({
-            name: row.name,
-            spec: row.spec,
-            unit: row.unit,
-            price: row.price,
-            floatRate: row.floatRate,
-            vendor: row.vendor
-        });
-    };
-
     const loadCabinetComponentUsage = async (rowIndex) => {
         if (!cabinetViewActive || rowIndex < 0 || rowIndex >= hot.countRows()) {
             return;
         }
-        const identity = identityFromHotRow(rowIndex);
-        await fetchComponentUsageByIdentity(identity);
+        const wzdh = (currentRowWzdh[rowIndex] || "").toString().trim();
+        const displayInfo = displayInfoFromHotRow(rowIndex);
+        await fetchComponentUsageByWzdh(wzdh, displayInfo);
     };
 
     if (showRefPriceCb) {
@@ -1094,17 +1201,15 @@
             }
             const unitNo = trigger.getAttribute("data-unit-no") || "";
             selectedCabinetCode = unitNo;
-            // 高亮选中节点
-            treeChildrenContainer.querySelectorAll("button.tree-node-link").forEach((btn) => {
-                btn.classList.remove("tree-node-link-usage");
-            });
-            trigger.classList.add("tree-node-link-usage");
+            setSelectedTreeNode(unitNo);
             loadCabinetComponents(unitNo);
         });
     }
 
     if (treeRootNode) {
         treeRootNode.addEventListener("click", () => {
+            selectedCabinetCode = "";
+            setSelectedTreeNode("__ROOT__");
             loadProjectComponentSummary();
         });
     }
@@ -1115,13 +1220,11 @@
         if (!Number.isFinite(r) || r < 0 || r >= hot.countRows()) {
             return;
         }
-        if (rootSummaryMode) {
-            // Root summary mode: no usage panel (data is grouped differently)
+        if (rootSummaryMode || summaryMode) {
+            // 汇总视图按指纹归并展示，元件使用查询仅在柜体视图启用
             return;
         }
-        if (summaryMode) {
-            loadProjectComponentUsage(r);
-        } else if (cabinetViewActive) {
+        if (cabinetViewActive) {
             loadCabinetComponentUsage(r);
         }
     });
@@ -1168,6 +1271,8 @@
             if (amtChanges.length > 0) {
                 hot.setDataAtCell(amtChanges, "recalcAmount");
             }
+            // Req 16.3: 单价/数量/浮动变更后重算合计金额
+            recalcTotalAmount();
         }
         // Req 9.6: 单价单元格值变更后触发价格异常检测着色
         if (priceChanged) {
@@ -1422,6 +1527,8 @@
 
         // Req 3.9: 填充价格后自动重算金额列
         filledRows.forEach((row) => recalcAmount(row));
+        // Req 16.3: 自动填价后同步刷新合计金额
+        recalcTotalAmount();
 
         return { matched, unmatched, total, filled: filledRows.length };
     };

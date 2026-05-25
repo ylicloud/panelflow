@@ -152,6 +152,54 @@ graph TD
 
 **说明：** 返回数组与 GetCabinetComponents 行序一一对应，无匹配记录的位置返回 null。
 
+#### GET /Quotation/GetProjectComponentUsage（已有，口径重构）
+
+**功能：** 查询某个元件（按标准化指纹 x_wzdh 识别）在本报价单内被哪些控制柜使用。
+
+**请求参数：** `id`(fabh)，`wzdh`（标准化指纹；空字符串将立即返回"无法识别"信息）
+
+**关键口径（Req 17）：**
+- 唯一识别字段：**`x_wzdh`**——与历史价格匹配（STD_PRICE_HISTORY）口径完全统一
+- **不参与匹配**的字段：`x_bj_dj`、`x_dj`、`x_fdds`、`x_sccj`、`x_dw`——同型号在不同柜可能有不同定价/厂家，仍是同一元件
+- 兜底：BJB 行的 `x_wzdh` 为空时，用 `NormalizeSpec(x_ggxh)` 实时计算
+- 比对采用 `OrdinalIgnoreCase`，规避大小写敏感导致的漏匹配
+- wzdh 入参为空 → 返回 success=true、rows=[]、message="该元件未填规格型号，无法识别使用情况"
+- 分组聚合：按 `x_bm` 前 4 位（控制柜编码）分组，返回每个柜的：编码、名称、合计数量、单价区间（min/max）、厂家集合
+
+**响应（正常）：**
+```json
+{
+  "success": true,
+  "rows": [
+    {
+      "unitCode": "0001",
+      "unitName": "总控柜",
+      "qty": 3,
+      "priceMin": 12.50,
+      "priceMax": 12.50,
+      "vendors": ["施耐德"]
+    },
+    {
+      "unitCode": "0003",
+      "unitName": "副柜A",
+      "qty": 1,
+      "priceMin": 11.80,
+      "priceMax": 13.20,
+      "vendors": ["施耐德", "正泰"]
+    }
+  ]
+}
+```
+
+**响应（wzdh 为空）：**
+```json
+{
+  "success": true,
+  "rows": [],
+  "message": "该元件未填规格型号，无法识别使用情况"
+}
+```
+
 ### 前端组件
 
 #### quotation-fill-price.js 增强
@@ -161,10 +209,47 @@ graph TD
 | autoFillPrice() | 调用后端接口，处理响应，填充表格 |
 | applyPriceToTable(prices) | 遍历表格行，按 x_wzdh 匹配并填充空价格单元格 |
 | recalcAmount(row) | 重算金额列：x_bj_dj * (1 + x_fdds/100) * x_sl |
+| recalcTotalAmount() | 累加当前视图的"金额"列（柜体视图）或"金额小计"列（根汇总视图），写入状态栏 |
+| updateCabinetStatusBar(label) | 更新右侧表格上方的状态栏（节点名 + 合计金额），并按视图模式显隐颜色图例 |
+| setSelectedTreeNode(unitCode) | 给目录树中用户主动选中的节点打上 `tree-node-link-selected` 样式（与 `tree-node-link-usage` 互相独立） |
 | loadReferencePrice(unitCode) | 加载参考价格列数据 |
 | applyPriceAnomalyStyles() | 价格异常检测着色（灰/红/橙） |
 | showPriceTooltip(row, col) | 显示参考价格/异常原因 tooltip |
 | validateBeforeSave() | 保存前校验负数价格 |
+
+#### 页面 UI 结构（FillPrice.cshtml，自顶向下）
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ 工具栏 oa-card                                                   │
+│  [隐藏目录树] 报价单：XXX [未保存]  …  [引用历史报价] [返回列表]   │
+│  ────────────────────────────────────────────────                │
+│  单价图例：[■]空/0  [■]负数  [■]偏离±20% | [■]参考价  [■]金额    │  ← 仅柜体视图显示
+├─────────────────────────────────────────────────────────────────┤
+│ 提示信息条 page-info-bar                                         │
+├─────────────────────────────────────────────────────────────────┤
+│ price-workspace (flex, 高度 = calc(100vh - 180px))               │
+│ ┌──────────────┬─┬──────────────────────────────────────────┐   │
+│ │ 目录树面板    │ │ 表格面板 .price-table-pane                │   │
+│ │              │ │ ┌────────────────────────────────────┐  │   │
+│ │ • 根节点      │分│ 当前节点：xxx        合计金额：¥xx.xx │  │   │
+│ │ • 控制柜A     │ │ │  (cabinet-status-bar)               │  │   │
+│ │ • 控制柜B[选] │ │ └────────────────────────────────────┘  │   │
+│ │ • 控制柜C[用] │隔│ ┌────────────────────────────────────┐  │   │
+│ │              │条│ │  Handsontable (flex:1 1 auto)       │  │   │
+│ │              │ │ │  ...                                │  │   │
+│ │              │ │ └────────────────────────────────────┘  │   │
+│ │              │ │ [元件使用控制柜面板]                      │   │
+│ │              │ │ [新增行] [删除行] [保存数据]              │   │
+│ └──────────────┴─┴──────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+要点：
+- **无独立标题栏**（释放面积），所有头部元素归并到工具栏
+- **`flex` 列布局**确保表格自适应剩余高度、底部按钮永远可见（修复早期"被状态条挡住"的 bug）
+- **`tree-node-link-selected` / `tree-node-link-usage` 双 CSS 类**分别表示"用户主动选中"和"匹配到的使用柜"，可以同时存在
+- **状态栏**实时显示当前柜名 + 合计金额，颜色图例仅在柜体视图显示
 
 ### NormalizeSpec 算法（已实现）
 
@@ -400,6 +485,20 @@ public class ReferencePriceRow
 
 **Validates: Requirements 7.3, 7.5**
 
+### Property 13: Component usage is matched by x_wzdh only
+
+*For any* two element rows A and B under the same quotation (fabh) whose effective `x_wzdh` (DB value, or `NormalizeSpec(x_ggxh)` fallback) are equal and non-empty, the `GetProjectComponentUsage` query SHALL include B's cabinet in the result when invoked for A, **regardless of any differences in price, floatRate, vendor, unit, or name string**. Conversely, for any row C whose effective `x_wzdh` differs from A's, C's cabinet SHALL NOT appear in A's result.
+
+Additionally, when the input `wzdh` is empty or whitespace, the endpoint SHALL return `rows=[]` with an explanatory message and SHALL NOT perform any database scan that could accidentally match other rows with empty `x_wzdh`.
+
+**Validates: Requirements 17.1, 17.2, 17.3, 17.6**
+
+### Property 14: Current node total amount correctness
+
+*For any* cabinet view loaded with N element rows, the value displayed in the "当前节点状态栏 / 合计金额" SHALL equal the sum of all rows' computed amount (`x_bj_dj * (1 + x_fdds/100) * x_sl`) rounded to 2 decimals. For the root summary view, the total SHALL equal the sum of all group subtotals (excluding the bottom 合计 row itself). The total SHALL refresh after: (a) data load, (b) any change to 单价/数量/浮动 columns, (c) row insertion or deletion, (d) auto-fill completion.
+
+**Validates: Requirements 16.3**
+
 ## Error Handling
 
 ### 后端错误处理策略
@@ -414,6 +513,7 @@ public class ReferencePriceRow
 | 数据库查询异常 | 记录日志，返回 500 + 通用错误信息 | 500 |
 | 批量更新事务失败 | 回滚事务，记录日志，返回 500 | 500 |
 | 保存时存在负数价格 | 拒绝保存，返回 400 + 负价格元件列表 | 400 |
+| 元件使用查询：x_wzdh 为空 | 200 + rows=[] + message="该元件未填规格型号..."，前端在面板内提示，不做数据库扫描 | 200 |
 | CSRF Token 无效 | ASP.NET 框架自动返回 400 | 400 |
 
 ### 前端错误处理策略

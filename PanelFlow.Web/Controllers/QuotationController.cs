@@ -568,19 +568,30 @@ ORDER BY b.x_bm",
         return Ok(new { success = true, rows = summary });
     }
 
+    /// <summary>
+    /// 查询某个元件（按标准化指纹 x_wzdh 识别）在本报价单内被哪些控制柜使用。
+    /// 口径（Req 17）：使用 x_wzdh 作为元件识别字段，与 STD_PRICE_HISTORY 匹配口径完全统一；
+    /// 不参与 价格 / 浮动率 / 厂家 等比较——同一型号在不同柜的价格/厂家差异不影响识别。
+    /// 当 x_wzdh 为空时拒绝查询（型号未填则无法识别为"同一元件"）。
+    /// </summary>
     [HttpGet]
-    public async Task<IActionResult> GetProjectComponentUsage(
-        string id,
-        string name,
-        string spec,
-        string unit,
-        decimal price,
-        decimal floatRate,
-        string vendor)
+    public async Task<IActionResult> GetProjectComponentUsage(string id, string wzdh)
     {
         var quotationNo = (id ?? string.Empty).Trim();
         if (string.IsNullOrWhiteSpace(quotationNo))
             return BadRequest(new { success = false, message = "报价单编号不能为空" });
+
+        var targetWzdh = (wzdh ?? string.Empty).Trim();
+        if (string.IsNullOrEmpty(targetWzdh))
+        {
+            // Req 17.6：元件未填规格型号时，明确返回无法识别，不统计使用情况
+            return Ok(new
+            {
+                success = true,
+                rows = Array.Empty<object>(),
+                message = "该元件未填规格型号，无法识别使用情况"
+            });
+        }
 
         var rows = await _db.BjbItems
             .AsNoTracking()
@@ -590,11 +601,11 @@ ORDER BY b.x_bm",
                 Code = (x.x_bm ?? string.Empty).Trim(),
                 Name = (x.x_mc ?? string.Empty).Trim(),
                 Spec = (x.x_ggxh ?? string.Empty).Trim(),
-                Unit = (x.x_dw ?? string.Empty).Trim(),
-                Price = x.x_dj ?? 0m,
+                Wzdh = (x.x_wzdh ?? string.Empty).Trim(),
                 Qty = x.x_sl ?? 0m,
-                FloatRate = x.x_fdds ?? 0m,
-                Vendor = (x.x_sccj ?? string.Empty).Trim()
+                Price = x.x_bj_dj ?? 0m,
+                Vendor = (x.x_sccj ?? string.Empty).Trim(),
+                Lx = x.x_lx
             })
             .ToListAsync();
 
@@ -602,21 +613,39 @@ ORDER BY b.x_bm",
             .Where(x => x.Code.Length == 4 && x.Code != "9999")
             .ToDictionary(x => x.Code, x => string.IsNullOrWhiteSpace(x.Name) ? x.Code : x.Name);
 
-        var usage = rows
-            .Where(x => x.Code.Length == 12
-                        && x.Code.Substring(4, 4) == "0001"
-                        && x.Name == (name ?? string.Empty).Trim()
-                        && x.Spec == (spec ?? string.Empty).Trim()
-                        && x.Unit == (unit ?? string.Empty).Trim()
-                        && x.Price == price
-                        && x.FloatRate == floatRate
-                        && x.Vendor == (vendor ?? string.Empty).Trim())
+        // 对元件行实时计算 wzdh 兜底：DB 中 x_wzdh 字段可能尚未刷新；同时只考察元件行（Lx==11、Code.Length==12、Substring(4,4)=="0001"）
+        var components = rows
+            .Where(x => x.Lx == 11
+                        && x.Code.Length == 12
+                        && x.Code.Substring(4, 4) == "0001")
+            .Select(x => new
+            {
+                x.Code,
+                x.Name,
+                x.Spec,
+                x.Qty,
+                x.Price,
+                x.Vendor,
+                EffectiveWzdh = string.IsNullOrWhiteSpace(x.Wzdh) ? NormalizeSpec(x.Spec) : x.Wzdh
+            })
+            .Where(x => string.Equals(x.EffectiveWzdh, targetWzdh, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        var usage = components
             .GroupBy(x => x.Code[..4])
             .Select(g => new
             {
                 unitCode = g.Key,
                 unitName = cabinetNames.TryGetValue(g.Key, out var unitName) ? unitName : g.Key,
-                qty = g.Sum(x => x.Qty)
+                qty = g.Sum(x => x.Qty),
+                // 同一柜中可能有多条同型号但不同价格/厂家的行，便于用户在面板里看出差异
+                priceMin = g.Min(x => x.Price),
+                priceMax = g.Max(x => x.Price),
+                vendors = g.Select(x => x.Vendor)
+                    .Where(v => !string.IsNullOrEmpty(v))
+                    .Distinct()
+                    .OrderBy(v => v)
+                    .ToList()
             })
             .OrderBy(x => x.unitCode)
             .ToList();
@@ -1115,7 +1144,17 @@ WHERE h.x_wzdh IN ({wzdhParams})";
             var historyRows = await _db.Database.SqlQueryRaw<AutoFillPriceRow>(
                 sql, wzdhSet.Cast<object>().ToArray()).ToListAsync();
 
-            var priceMap = historyRows.ToDictionary(r => r.Wzdh, r => r);
+            // 使用 OrdinalIgnoreCase 比较器：SQL Server 默认排序规则大小写不敏感，
+            // DB 中存储的 x_wzdh 可能与输入大小写不一致，避免后续 ContainsKey/TryGetValue 漏匹配。
+            var priceMap = new Dictionary<string, AutoFillPriceRow>(StringComparer.OrdinalIgnoreCase);
+            foreach (var row in historyRows)
+            {
+                var key = (row.Wzdh ?? string.Empty).Trim();
+                if (!string.IsNullOrEmpty(key))
+                {
+                    priceMap[key] = row;
+                }
+            }
 
             // ── 统计匹配情况 ──
             var matchedWzdhCodes = rowsWithWzdh
@@ -1168,15 +1207,22 @@ WHERE LTRIM(RTRIM(fabh)) = {fabh}
             }
 
             // ── 构建价格映射返回前端（Req 5.4）──
+            // key 使用前端实际持有的 wzdh（即 currentRowWzdh，来自 GetCabinetComponents），
+            // 而非 DB 返回的 wzdh 原始大小写，避免前端 prices[wzdh] 查找失败。
             var skipped = matched - updated;
-            var prices = priceMap.ToDictionary(
-                kv => kv.Key,
-                kv => new PriceInfo
+            var prices = new Dictionary<string, PriceInfo>(StringComparer.Ordinal);
+            foreach (var inputWzdh in wzdhSet)
+            {
+                if (priceMap.TryGetValue(inputWzdh, out var info))
                 {
-                    Price = kv.Value.Price,
-                    Unit = kv.Value.Unit,
-                    Vendor = kv.Value.Vendor
-                });
+                    prices[inputWzdh] = new PriceInfo
+                    {
+                        Price = info.Price,
+                        Unit = info.Unit,
+                        Vendor = info.Vendor
+                    };
+                }
+            }
 
             var message = $"已匹配 {matched}/{total} 个元件的历史报价，实际更新 {updated} 个" +
                           (skipped > 0 ? $"（{skipped} 个已有价格跳过）" : string.Empty) +

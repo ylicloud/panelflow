@@ -52,7 +52,7 @@ SET x_wzdh = dbo.F_CleanString(x_ggxh)
 WHERE (x_wzdh IS NULL OR x_wzdh = '')
   AND x_ggxh IS NOT NULL AND LTRIM(RTRIM(x_ggxh)) != ''
   AND x_lx = 11
-  AND (x_bjb_datetime >= DATEADD(YEAR, -5, GETDATE()) OR x_bjb_datetime IS NULL);
+  AND (x_bjb_datetime >= DATEADD(YEAR, -10, GETDATE()) OR x_bjb_datetime IS NULL);
 
 PRINT '历史数据 x_wzdh 回填完成（最近5年），影响行数: ' + CAST(@@ROWCOUNT AS VARCHAR(20));
 */
