@@ -70,7 +70,7 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
-    DECLARE @fiveYearsAgo DATETIME = DATEADD(YEAR, -5, GETDATE());
+    DECLARE @tenYearsAgo DATETIME = DATEADD(YEAR, -10, GETDATE());
 
     -- CTE: 取每个 x_wzdh 的最新一条记录（按 fabh 降序）
     ;WITH LatestRow AS (
@@ -105,7 +105,7 @@ BEGIN
           AND b.x_lx = 11
           AND b.x_bjb_dj > 0
           AND f.dqzt = 10
-          AND (b.x_bjb_datetime >= @fiveYearsAgo OR b.x_bjb_datetime IS NULL)
+          AND (b.x_bjb_datetime >= @tenYearsAgo OR b.x_bjb_datetime IS NULL)
         GROUP BY b.x_wzdh
     ),
     -- 合并最新行和统计数据
