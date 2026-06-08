@@ -13,6 +13,31 @@
     // ============================================================
 
     /**
+     * BJB 字段长度上限（与 databaseStructure.csv / BjbImportFieldLimits.cs 一致）。
+     * 计数口径：trim 后 string.length，等同 SQL Server LEN(LTRIM(RTRIM(col)))。
+     */
+    const BJB_FIELD_LIMITS = {
+        xMc: 50,
+        xGgxh: 50,
+        xSccj: 50
+    };
+
+    /** 与 SQL Server LEN(LTRIM(RTRIM(@s))) 一致（UTF-16 码元，中英文各计 1 字） */
+    function sqlLen(text) {
+        return (text ?? "").trim().length;
+    }
+
+    function appendLengthError(errors, invalidCells, rowIndex, colIndex, value, maxLen, columnLabel) {
+        const len = sqlLen(value);
+        if (len > maxLen) {
+            errors.push(
+                `第 ${rowIndex + 1} 行：第${colIndex + 1}列${columnLabel}超过 ${maxLen} 字（当前 ${len} 字），请缩短后重试`
+            );
+            invalidCells.add(`${rowIndex}:${colIndex}`);
+        }
+    }
+
+    /**
      * 验证元件表格行集，输出错误摘要与无效单元格/行集合。
      *
      * 输入约定（design.md「模块边界与契约」）：
@@ -91,6 +116,26 @@
                 } else {
                     firstSeenRowNo.set(unitNo, rowNo);
                 }
+
+                const quantityText = (row[5] || "").trim();
+                const quantityNumber = Number(quantityText);
+                const quantity = Number.isFinite(quantityNumber) && quantityNumber > 0
+                    ? Math.floor(quantityNumber)
+                    : 1;
+                const splitNames = buildSplitNames(unitNo, quantity);
+                splitNames.forEach((splitName, idx) => {
+                    const splitLen = sqlLen(splitName);
+                    if (splitLen > BJB_FIELD_LIMITS.xMc) {
+                        errors.push(
+                            `第 ${rowNo} 行：单元号拆分后的控制柜名称超过 ${BJB_FIELD_LIMITS.xMc} 字（第 ${idx + 1} 个：「${splitName}」，当前 ${splitLen} 字），请缩短单元号或降低拆分数量`
+                        );
+                        invalidCells.add(`${i}:1`);
+                    }
+                });
+            } else {
+                appendLengthError(errors, invalidCells, i, 2, name, BJB_FIELD_LIMITS.xMc, "名称");
+                appendLengthError(errors, invalidCells, i, 3, spec, BJB_FIELD_LIMITS.xGgxh, "规格");
+                appendLengthError(errors, invalidCells, i, 6, row[6] || "", BJB_FIELD_LIMITS.xSccj, "生产厂家");
             }
         }
 
@@ -205,7 +250,7 @@
     // Node 兼容导出（仅当存在 CommonJS 环境时生效；浏览器中 typeof module === "undefined"）。
     // 测试侧（Vitest + jsdom）通过 require("../quotation-import.js") 拿到三个纯函数。
     if (typeof module !== "undefined" && module.exports) {
-        module.exports = { validateRows, buildSplitNames, buildPreviewNodes };
+        module.exports = { validateRows, buildSplitNames, buildPreviewNodes, BJB_FIELD_LIMITS, sqlLen };
     }
 
     // ============================================================

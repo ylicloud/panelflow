@@ -156,14 +156,15 @@ public class ApplicationDbContext : DbContext
             entity.HasNoKey();
             entity.Property(e => e.fabh).HasColumnName("fabh").HasColumnType("char(20)");
             entity.Property(e => e.x_bm).HasColumnName("x_bm").HasColumnType("char(100)");
-            entity.Property(e => e.x_mc).HasColumnName("x_mc").HasColumnType("char(100)");
-            entity.Property(e => e.x_ggxh).HasColumnName("x_ggxh").HasColumnType("char(100)");
+            entity.Property(e => e.x_mc).HasColumnName("x_mc").HasColumnType("char(50)");
+            entity.Property(e => e.x_ggxh).HasColumnName("x_ggxh").HasColumnType("char(50)");
             entity.Property(e => e.x_dw).HasColumnName("x_dw").HasColumnType("char(10)");
             entity.Property(e => e.x_dj).HasColumnName("x_dj").HasColumnType("numeric(18,4)");
             entity.Property(e => e.x_bj_dj).HasColumnName("x_bj_dj").HasColumnType("numeric(18,4)");
             entity.Property(e => e.x_sl).HasColumnName("x_sl").HasColumnType("numeric(18,4)");
             entity.Property(e => e.x_fdds).HasColumnName("x_fdds").HasColumnType("numeric(18,4)");
-            entity.Property(e => e.x_sccj).HasColumnName("x_sccj").HasColumnType("char(20)");
+            entity.Property(e => e.x_sccj).HasColumnName("x_sccj").HasColumnType("char(50)");
+            entity.Property(e => e.x_wzdh).HasColumnName("x_wzdh").HasColumnType("char(100)");
             entity.Property(e => e.x_bjb_dj).HasColumnName("x_bjb_dj").HasColumnType("numeric(18,4)");
             entity.Property(e => e.x_bjb_bj).HasColumnName("x_bjb_bj").HasColumnType("numeric(18,4)");
             entity.Property(e => e.x_lx).HasColumnName("x_lx");

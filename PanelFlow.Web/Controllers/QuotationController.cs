@@ -5,6 +5,7 @@ using PanelFlow.Core.Services;
 using PanelFlow.Infrastructure.Data;
 using PanelFlow.Web.Extensions;
 using PanelFlow.Web.Filters;
+using PanelFlow.Web.Helpers;
 using PanelFlow.Web.Models.Quotation;
 using System.ComponentModel.DataAnnotations;
 using Microsoft.EntityFrameworkCore;
@@ -1227,13 +1228,26 @@ WHERE fabh = {quotationNo}
             });
         }
 
+        var lengthErrors = BjbImportFieldLimits.ValidateImportTable(
+            tableRows, treeNodeNames, NormalizeSpec);
+        if (lengthErrors.Count > 0)
+        {
+            return BadRequest(new
+            {
+                success = false,
+                message = lengthErrors[0],
+                lengthErrors = lengthErrors.Take(20).ToList()
+            });
+        }
+
         // --- 计算 x_dj 和 x_wzdh（Req 10.4, 10.5, 12.6）---
         foreach (var row in rowsToInsert)
         {
             // x_wzdh: NormalizeSpec 处理 x_ggxh（BuildRowsFromTable 已设置，此处确保一致性）
             if (row.Xlx == 11)
             {
-                row.Xwzdh = NormalizeSpec(row.Xggxh);
+                row.Xwzdh = BjbImportFieldLimits.Limit(
+                    NormalizeSpec(row.Xggxh), BjbImportFieldLimits.XWzdh);
             }
 
             // x_dj = x_bj_dj * (1 + x_fdds / 100)，x_fdds 为 NULL 视为 0
@@ -1535,7 +1549,7 @@ WHERE fabh = {fabh}
                 result.Add(new BjbWriteRow
                 {
                     Xbm = currentUnitCode,
-                    Xmc = Limit(unitNodeName, 50),
+                    Xmc = BjbImportFieldLimits.Limit(unitNodeName, BjbImportFieldLimits.XMc),
                     Xggxh = string.Empty,
                     Xsccj = string.Empty,
                     Xdj = 0m,
@@ -1563,7 +1577,8 @@ WHERE fabh = {fabh}
                         Xmc = component.Name,
                         Xggxh = component.Spec,
                         Xsccj = component.Vendor,
-                        Xwzdh = NormalizeSpec(component.Spec),
+                        Xwzdh = BjbImportFieldLimits.Limit(
+                            NormalizeSpec(component.Spec), BjbImportFieldLimits.XWzdh),
                         Xdj = component.Price,
                         Xsl = component.Qty,
                         XbjDj = component.Price,
@@ -1623,9 +1638,9 @@ WHERE fabh = {fabh}
 
             currentUnit.Components.Add(new ComponentSourceRow
             {
-                Name = Limit(c3Name, 50),
-                Spec = Limit(c4Spec, 50),
-                Vendor = Limit(c7Vendor, 50),
+                Name = BjbImportFieldLimits.Limit(c3Name, BjbImportFieldLimits.XMc),
+                Spec = BjbImportFieldLimits.Limit(c4Spec, BjbImportFieldLimits.XGgxh),
+                Vendor = BjbImportFieldLimits.Limit(c7Vendor, BjbImportFieldLimits.XSccj),
                 Price = ParseDecimal(c5Price),
                 Qty = ParseDecimal(c6Qty)
             });
@@ -1690,12 +1705,6 @@ WHERE fabh = {fabh}
             XbjbDj = 0m,
             Xlx = type
         };
-    }
-
-    private static string Limit(string? value, int maxLen)
-    {
-        var text = (value ?? string.Empty).Trim();
-        return text.Length <= maxLen ? text : text[..maxLen];
     }
 
     private sealed record WzdhComponentMatch(string Code, string CabCode, string CabName, string Name, string Spec);
