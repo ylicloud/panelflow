@@ -127,11 +127,14 @@ public class QuotationController : Controller
         return Json(items);
     }
 
-    [HttpGet]
+﻿    [HttpGet]
     public async Task<IActionResult> Edit(string id)
     {
         ViewData["Title"] = "编辑报价单";
         ViewData["BreadcrumbTitle"] = "编辑报价单";
+
+        var loginUser = HttpContext.Session.GetLoginUser();
+        var userName = (loginUser?.UserName ?? string.Empty).Trim();
 
         var dto = await _quotationService.GetByQuotationNoAsync(id);
         if (dto == null)
@@ -140,7 +143,14 @@ public class QuotationController : Controller
             return RedirectToAction(nameof(Index));
         }
 
-        return View(await ToEditModelAsync(dto));
+        var (allowed, accessMessage) = await _quotationService.ValidateEditAccessAsync(id, userName);
+        if (!allowed)
+        {
+            TempData["ErrorMessage"] = accessMessage;
+            return RedirectToAction(nameof(Index));
+        }
+
+        return View(await ToEditModelAsync(dto, userName));
     }
 
     /// <summary>
@@ -236,7 +246,7 @@ public class QuotationController : Controller
         var quotationNo = (dto.QuotationNo ?? string.Empty).Trim();
         var treeNodes = await _db.BjbItems
             .AsNoTracking()
-            .Where(x => x.fabh.Trim() == quotationNo)
+            .Where(x => x.fabh == quotationNo)
             .Select(x => new
             {
                 Code = (x.x_bm ?? string.Empty).Trim(),
@@ -281,7 +291,7 @@ public class QuotationController : Controller
 
         var rows = await _db.BjbItems
             .AsNoTracking()
-            .Where(x => x.fabh.Trim() == quotationNo)
+            .Where(x => x.fabh == quotationNo)
             .Select(x => new
             {
                 Code = (x.x_bm ?? string.Empty).Trim(),
@@ -371,7 +381,7 @@ ORDER BY b.x_bm",
         // 查询当前控制柜下的元件行，与 GetCabinetComponents 使用相同筛选和排序
         var bjbRows = await _db.BjbItems
             .AsNoTracking()
-            .Where(x => x.fabh.Trim() == quotationNo)
+            .Where(x => x.fabh == quotationNo)
             .Select(x => new
             {
                 Code = (x.x_bm ?? string.Empty).Trim(),
@@ -520,7 +530,7 @@ ORDER BY b.x_bm",
 
         var rows = await _db.BjbItems
             .AsNoTracking()
-            .Where(x => x.fabh.Trim() == quotationNo)
+            .Where(x => x.fabh == quotationNo)
             .Select(x => new
             {
                 Code = (x.x_bm ?? string.Empty).Trim(),
@@ -599,7 +609,7 @@ ORDER BY b.x_bm",
 
         var rows = await _db.BjbItems
             .AsNoTracking()
-            .Where(x => x.fabh.Trim() == quotationNo)
+            .Where(x => x.fabh == quotationNo)
             .Select(x => new
             {
                 Code = (x.x_bm ?? string.Empty).Trim(),
@@ -763,7 +773,7 @@ SET x_bj_dj = {request.NewPrice},
     x_bjb_bj = {request.NewPrice},
     x_bjb_dj = {request.NewPrice},
     x_dj = {request.NewPrice}
-WHERE LTRIM(RTRIM(fabh)) = {quotationNo}
+WHERE fabh = {quotationNo}
   AND LTRIM(RTRIM(x_bm)) = {row.Code}");
             }
 
@@ -822,7 +832,7 @@ WHERE LTRIM(RTRIM(fabh)) = {quotationNo}
         // ── 1. 拉取本报价单所有 BJB 行（柜行 + 元件行），用于元件枚举与柜名映射 ──
         var rows = await _db.BjbItems
             .AsNoTracking()
-            .Where(x => x.fabh.Trim() == quotationNo)
+            .Where(x => x.fabh == quotationNo)
             .Select(x => new
             {
                 Code = (x.x_bm ?? string.Empty).Trim(),
@@ -942,7 +952,7 @@ WHERE LTRIM(RTRIM(fabh)) = {quotationNo}
                         matched += await _db.Database.SqlQueryRaw<int>($@"
 SELECT COUNT(1)
 FROM BJB
-WHERE LTRIM(RTRIM(fabh)) = {{0}}
+WHERE fabh = {{0}}
   AND LTRIM(RTRIM(x_bm)) = {{1}}", quotationNo, trimmedCode).FirstAsync();
 
                         affectedByCodes += await _db.Database.ExecuteSqlInterpolatedAsync($@"
@@ -954,7 +964,7 @@ SET x_dw = {newUnit},
     x_bj_dj = {item.NewPrice},
     x_bjb_bj = {item.NewPrice},
     x_bjb_dj = {item.NewPrice}
-WHERE LTRIM(RTRIM(fabh)) = {quotationNo}
+WHERE fabh = {quotationNo}
   AND LTRIM(RTRIM(x_bm)) = {trimmedCode}");
                     }
 
@@ -965,7 +975,7 @@ WHERE LTRIM(RTRIM(fabh)) = {quotationNo}
                 var matchedCountSql = await _db.Database.SqlQueryRaw<int>(@"
 SELECT COUNT(1)
 FROM BJB
-WHERE LTRIM(RTRIM(fabh)) = {0}
+WHERE fabh = {0}
   AND LEN(LTRIM(RTRIM(x_bm))) = 12
   AND SUBSTRING(LTRIM(RTRIM(x_bm)), 5, 4) = '0001'
   AND LTRIM(RTRIM(x_mc)) = {1}
@@ -986,7 +996,7 @@ SET x_dw = {newUnit},
     x_bj_dj = {item.NewPrice},
     x_bjb_bj = {item.NewPrice},
     x_bjb_dj = {item.NewPrice}
-WHERE LTRIM(RTRIM(fabh)) = {quotationNo}
+WHERE fabh = {quotationNo}
   AND LEN(LTRIM(RTRIM(x_bm))) = 12
   AND SUBSTRING(LTRIM(RTRIM(x_bm)), 5, 4) = '0001'
   AND LTRIM(RTRIM(x_mc)) = {parsedKey.Name}
@@ -1165,7 +1175,7 @@ WHERE LTRIM(RTRIM(fabh)) = {quotationNo}
 
         var quotation = await _db.BjfatQuotations
             .AsNoTracking()
-            .FirstOrDefaultAsync(x => x.fabh.Trim() == fabh);
+            .FirstOrDefaultAsync(x => x.fabh == fabh);
         if (quotation == null)
             return NotFound(new { success = false, message = "方案不存在" });
 
@@ -1299,7 +1309,7 @@ VALUES
 
         var quotation = await _db.BjfatQuotations
             .AsNoTracking()
-            .FirstOrDefaultAsync(x => x.fabh.Trim() == fabh);
+            .FirstOrDefaultAsync(x => x.fabh == fabh);
         if (quotation == null)
             return NotFound(new { success = false, message = "报价单不存在" });
 
@@ -1316,7 +1326,7 @@ VALUES
             // ── 查询 BJB 中 x_lx=11、x_bm.Trim().Length=12 的元件行 ──
             var allComponents = await _db.BjbItems
                 .AsNoTracking()
-                .Where(x => x.fabh.Trim() == fabh && x.x_lx == 11)
+                .Where(x => x.fabh == fabh && x.x_lx == 11)
                 .Select(x => new
                 {
                     Code = (x.x_bm ?? string.Empty).Trim(),
@@ -1427,7 +1437,7 @@ UPDATE BJB
 SET x_bjb_dj = {historyPrice},
     x_bjb_bj = {historyPrice},
     x_bj_dj = {historyPrice}
-WHERE LTRIM(RTRIM(fabh)) = {fabh}
+WHERE fabh = {fabh}
   AND LTRIM(RTRIM(x_bm)) = {row.Code}
   AND x_lx = 11
   AND ISNULL(x_bjb_dj, 0) = 0");
@@ -1698,7 +1708,7 @@ WHERE LTRIM(RTRIM(fabh)) = {fabh}
     {
         var rows = await _db.BjbItems
             .AsNoTracking()
-            .Where(x => x.fabh.Trim() == quotationNo)
+            .Where(x => x.fabh == quotationNo)
             .Select(x => new
             {
                 Code = (x.x_bm ?? string.Empty).Trim(),
@@ -1745,7 +1755,7 @@ WHERE LTRIM(RTRIM(fabh)) = {fabh}
         var codeSet = new HashSet<string>(codes, StringComparer.Ordinal);
         var rows = await _db.BjbItems
             .AsNoTracking()
-            .Where(x => x.fabh.Trim() == quotationNo)
+            .Where(x => x.fabh == quotationNo)
             .Select(x => new
             {
                 Code = (x.x_bm ?? string.Empty).Trim(),
@@ -1891,25 +1901,29 @@ WHERE LTRIM(RTRIM(fabh)) = {fabh}
         return (value ?? string.Empty).Trim();
     }
 
-    [HttpPost]
+﻿    [HttpPost]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Edit(QuotationEditViewModel model)
     {
         ModelState.Remove(nameof(QuotationEditViewModel.CreatedAt));
+        var loginUser = HttpContext.Session.GetLoginUser();
+        var userName = (loginUser?.UserName ?? string.Empty).Trim();
 
-        if (!ModelState.IsValid)
+        async Task<IActionResult> ReturnEditViewAsync()
         {
             ViewData["Title"] = "编辑报价单";
             ViewData["BreadcrumbTitle"] = "编辑报价单";
+            await PopulateRenameFabhFlagsAsync(model, userName);
             return View(model);
         }
+
+        if (!ModelState.IsValid)
+            return await ReturnEditViewAsync();
 
         if (string.IsNullOrWhiteSpace(model.CustomerName) || string.IsNullOrWhiteSpace(model.CustomerAlias))
         {
             ModelState.AddModelError(string.Empty, "请先通过关键字搜索并选择客户");
-            ViewData["Title"] = "编辑报价单";
-            ViewData["BreadcrumbTitle"] = "编辑报价单";
-            return View(model);
+            return await ReturnEditViewAsync();
         }
 
         var before = await _quotationService.GetByQuotationNoAsync(model.QuotationNo);
@@ -1919,17 +1933,47 @@ WHERE LTRIM(RTRIM(fabh)) = {fabh}
             return RedirectToAction(nameof(Index));
         }
 
-        var (success, message) = await _quotationService.UpdateAsync(ToEditDto(model, before));
+        var (success, message) = await _quotationService.UpdateAsync(ToEditDto(model, before), userName);
         if (!success)
         {
             ModelState.AddModelError(string.Empty, message);
-            ViewData["Title"] = "编辑报价单";
-            ViewData["BreadcrumbTitle"] = "编辑报价单";
-            return View(model);
+            return await ReturnEditViewAsync();
         }
 
         TempData["SuccessMessage"] = message;
         return RedirectToAction(nameof(Index));
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> RenameQuotationNo(string id, string newQuotationNo)
+    {
+        var loginUser = HttpContext.Session.GetLoginUser();
+        var userName = (loginUser?.UserName ?? string.Empty).Trim();
+        var oldFabh = (id ?? string.Empty).Trim();
+        var newFabh = (newQuotationNo ?? string.Empty).Trim();
+        var before = await _quotationService.GetByQuotationNoAsync(oldFabh);
+
+        var result = await _quotationService.RenameFabhAsync(oldFabh, newFabh, userName);
+
+        await WriteQuotationAuditAsync(
+            "RenameFabh",
+            oldFabh,
+            result.Success,
+            result.Success ? null : result.Message,
+            before,
+            result.NewFabh,
+            result.AffectedRows,
+            newFabh);
+
+        if (!result.Success)
+        {
+            TempData["ErrorMessage"] = result.Message;
+            return RedirectToAction(nameof(Edit), new { id = oldFabh });
+        }
+
+        TempData["SuccessMessage"] = $"{result.Message}：{oldFabh} → {result.NewFabh}。请更新书签或收藏链接。";
+        return RedirectToAction(nameof(Edit), new { id = result.NewFabh });
     }
 
     [HttpPost]
@@ -2449,7 +2493,7 @@ WHERE LTRIM(RTRIM(fabh)) = {fabh}
         };
     }
 
-    private async Task<QuotationEditViewModel> ToEditModelAsync(QuotationDto dto)
+    private async Task<QuotationEditViewModel> ToEditModelAsync(QuotationDto dto, string userName)
     {
         var model = new QuotationEditViewModel
         {
@@ -2484,8 +2528,60 @@ WHERE LTRIM(RTRIM(fabh)) = {fabh}
             }
         }
 
+        await PopulateRenameFabhFlagsAsync(model, userName);
         return model;
     }
+
+﻿    private async Task PopulateRenameFabhFlagsAsync(QuotationEditViewModel model, string userName)
+    {
+        var (canRename, message) = await _quotationService.CanRenameFabhAsync(model.QuotationNo, userName);
+        model.CanRenameFabh = canRename;
+        model.RenameFabhBlockedReason = canRename ? null : message;
+    }
+
+    private async Task WriteQuotationAuditAsync(
+        string actionType,
+        string entityId,
+        bool success,
+        string? errorMessage,
+        QuotationDto? before,
+        string? newFabh = null,
+        IReadOnlyDictionary<string, int>? affectedRows = null,
+        string? attemptedNewFabh = null)
+    {
+        var loginUser = HttpContext.Session.GetLoginUser();
+        object? beforePayload = before == null
+            ? null
+            : new
+            {
+                fabh = before.QuotationNo,
+                quotationName = before.QuotationName,
+                dqzt = before.CurrentStatus,
+                fasj = before.CreatedAt,
+                attemptNewFabh = attemptedNewFabh
+            };
+        object? afterPayload = success && !string.IsNullOrWhiteSpace(newFabh)
+            ? new { fabh = newFabh, affectedRows }
+            : null;
+
+        await _auditLogService.WriteAsync(new AuditLogEntry
+        {
+            ActionType = actionType,
+            Module = "Quotation",
+            EntityName = "BJFAT",
+            EntityId = entityId.Trim(),
+            UserName = loginUser?.UserName ?? string.Empty,
+            DisplayName = loginUser?.DisplayName,
+            RoleName = loginUser?.RoleName,
+            ClientIp = HttpContext.Connection.RemoteIpAddress?.ToString(),
+            UserAgent = Request.Headers.UserAgent.ToString(),
+            IsSuccess = success,
+            ErrorMessage = errorMessage,
+            BeforeData = beforePayload == null ? null : JsonSerializer.Serialize(beforePayload),
+            AfterData = afterPayload == null ? null : JsonSerializer.Serialize(afterPayload)
+        });
+    }
+
 }
 
 public class QuotationListViewModel
@@ -2555,6 +2651,10 @@ public class QuotationEditViewModel
 
     [Display(Name = "当前状态")]
     public int CurrentStatus { get; set; }
+
+    public bool CanRenameFabh { get; set; }
+
+    public string? RenameFabhBlockedReason { get; set; }
 }
 
 public static class PriceSection

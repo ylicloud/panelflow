@@ -87,6 +87,26 @@
   - 不使用列表拼接值
   - 根据报价单的 `khbh` 到 `KHYLB.gsbh` 查询 `gsmc` 与 `gsld`
 - 更新时仅更新允许修改字段（如报价单名称、客户编号、备注），其余字段保持原值
+- **Edit GET/POST 权限**（`QuotationService.ValidateEditAccessAsync` / `UpdateAsync`）：
+  - 仅报价人本人（`bjr` 与当前登录用户名一致）
+  - `dqzt !== 10`（已成立不可编辑）
+  - 不满足则拒绝访问或保存
+
+### 4.1 纠错改号（独立入口）
+
+详细规则见 `Docs/修改方案编号fabh.txt`。
+
+- 编辑页**报价单编号默认只读**；满足条件时显示链接「编号录入有误？申请修改」，打开 Modal 提交
+- 入口：`QuotationController.RenameQuotationNo()` `POST`
+- 服务：`QuotationService.CanRenameFabhAsync()` / `RenameFabhAsync()`
+- 允许改号条件（全部满足）：
+  - `XMYLB.bjd_fabh` 不存在原编号关联
+  - `dqzt !== 10`
+  - `bjr` 为当前用户
+  - `fasj` 距今天 ≤ 30 天
+  - 新编号在 `BJFAT` 中不存在
+- 同事务 UPDATE：`BJB` → `BJB_HZB` → `BJB_XMYJB` → `BJB_XMYJHZ` → `BJB_XMHZ` → `XM_YJB` → `XM_CKJS` → `XM_YJHZ` → `XM_HZ` → `BJFAT`
+- **审计**：`ActionType=RenameFabh`，`Module=Quotation`，写入 `SYS_AUDIT_LOG`（成功/失败均记录，`BeforeData`/`AfterData` 含旧新编号与各表影响行数）
 
 ## 5. 删除逻辑
 
