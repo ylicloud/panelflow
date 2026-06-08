@@ -18,7 +18,7 @@
     const toggleTreeBtn = document.getElementById("toggle-tree-btn");
     const treeChildrenContainer = document.getElementById("tree-children-container");
     const treeRootNode = document.getElementById("tree-root-node");
-    const saveSummaryBtn = document.getElementById("save-summary-btn");
+    const saveSummaryBtn = document.getElementById("save-summary-btn"); // 已移除，保留 null 兼容旧代码
     const saveForm = document.getElementById("price-save-form");
     const fillPriceActionButtons = document.getElementById("fill-price-action-buttons");
     const showRefPriceCb = document.getElementById("show-ref-price-cb");
@@ -34,10 +34,27 @@
     const currentNodeLabelEl = document.getElementById("current-node-label");
     const currentNodeTotalEl = document.getElementById("current-node-total");
     const quotationName = (document.getElementById("tree-root-node")?.textContent || "").trim();
+    // fill-progress-dashboard spec / B-T5: 进度看板徽章 + 问题抽屉 DOM
+    const fillProgressBadgeEl = document.getElementById("fill-progress-badge");
+    const progressFilledEl = document.getElementById("progress-filled");
+    const progressTotalEl = document.getElementById("progress-total");
+    const progressPercentEl = document.getElementById("progress-percent");
+    const anomalyCountEl = document.getElementById("anomaly-count");
+    const problemListToggleEl = document.getElementById("problem-list-toggle");
+    const problemListDrawerEl = document.getElementById("problem-list-drawer");
+    const problemListBodyEl = document.getElementById("problem-list-body");
+    const problemListSummaryEl = document.getElementById("problem-list-summary");
+    const problemListCloseEl = document.getElementById("problem-list-close");
+    const fillProgressUrl = (fillProgressBadgeEl?.dataset.progressUrl || "").trim();
+    const wzdhSyncStatsUrl = (container.dataset.wzdhSyncStatsUrl || "").trim();
+    const applyPriceByWzdhUrl = (container.dataset.applyPriceByWzdhUrl || "").trim();
 
     const BASE_HEADERS_8 = ["序号", "名称", "规格", "单位", "单价", "数量", "金额", "报价浮动", "厂家"];
     const BASE_HEADERS_9 = ["序号", "名称", "规格", "单位", "单价", "参考价格", "数量", "金额", "报价浮动", "厂家"];
     const ROOT_SUMMARY_HEADERS = ["元件名称", "规格型号", "单价", "合计数量", "金额小计"];
+    const ROOT_COL_PRICE = 2;
+    const ROOT_COL_QTY = 3;
+    const ROOT_COL_SUBTOTAL = 4;
 
     let summaryMode = false;
     let projectSummaryReadOnly = false;
@@ -554,6 +571,57 @@
         currentNodeTotalEl.textContent = `¥${total.toFixed(2)}`;
     };
 
+    const isRootSummaryTotalRow = (rowIndex, instance) => {
+        if (!rootSummaryMode || rowIndex < 0) return false;
+        const inst = instance || (typeof hot !== "undefined" ? hot : null);
+        if (!inst || typeof inst.getData !== "function") return false;
+        const data = inst.getData();
+        const row = Array.isArray(data[rowIndex]) ? data[rowIndex] : null;
+        if (!row) return false;
+        return (row[0] ?? "").toString().trim() === "合计";
+    };
+
+    /** 根节点汇总：单价变更后重算该行金额小计 */
+    const recalcRootSummaryRow = (rowIndex) => {
+        if (!rootSummaryMode || isRootSummaryTotalRow(rowIndex)) return;
+        const row = hot.getData()[rowIndex];
+        if (!Array.isArray(row)) return;
+        const price = parseDecimalOrZero(row[ROOT_COL_PRICE]);
+        const qty = parseDecimalOrZero(row[ROOT_COL_QTY]);
+        const subtotal = price * qty;
+        hot.setDataAtCell(
+            rowIndex,
+            ROOT_COL_SUBTOTAL,
+            subtotal === 0 ? "" : subtotal.toFixed(2),
+            "recalcAmount"
+        );
+    };
+
+    /** 根节点汇总：刷新底部"合计"行与状态栏总金额 */
+    const recalcRootSummaryGrandTotal = () => {
+        if (!rootSummaryMode) return;
+        const data = hot.getData();
+        let total = 0;
+        for (let r = 0; r < data.length; r += 1) {
+            if (isRootSummaryTotalRow(r)) continue;
+            const row = data[r];
+            if (!Array.isArray(row)) continue;
+            total += parseDecimalOrZero(row[ROOT_COL_SUBTOTAL]);
+        }
+        const lastIdx = data.length - 1;
+        if (lastIdx >= 0 && isRootSummaryTotalRow(lastIdx)) {
+            hot.setDataAtCell(
+                lastIdx,
+                ROOT_COL_SUBTOTAL,
+                total === 0 ? "" : total.toFixed(2),
+                "recalcAmount"
+            );
+        }
+        if (currentNodeTotalEl) {
+            currentNodeTotalEl.textContent = `¥${total.toFixed(2)}`;
+        }
+    };
+
     /**
      * 更新状态栏（柜名 + 合计），同时显隐颜色图例。
      */
@@ -639,11 +707,15 @@
                 td.style.backgroundColor = "#d6eaf8";
                 td.style.color = "#1b4f72";
                 td.style.fontWeight = "bold";
-            } else if (col === 4) {
+            } else if (col === ROOT_COL_SUBTOTAL) {
                 // 金额小计列样式
                 td.style.backgroundColor = "#d6eaf8";
                 td.style.color = "#1b4f72";
                 td.style.fontWeight = "600";
+            } else if (col === ROOT_COL_PRICE && !cellProperties.readOnly) {
+                td.style.backgroundColor = "";
+                td.style.color = "";
+                td.style.fontWeight = "";
             } else {
                 td.style.backgroundColor = "#eef1f4";
                 td.style.color = "#495057";
@@ -688,11 +760,12 @@
         td.style.border = "";
     };
 
-    const getCellsMeta = (row, col) => {
+    const getCellsMeta = (instance, row, col) => {
         if (rootSummaryMode) {
+            const totalRow = isRootSummaryTotalRow(row, instance);
             return {
                 renderer: errorCellRenderer,
-                readOnly: true
+                readOnly: globalReadOnly || totalRow || col !== ROOT_COL_PRICE
             };
         }
         const editable = editableColsForMode();
@@ -708,10 +781,9 @@
             hot.updateSettings({
                 colHeaders: ROOT_SUMMARY_HEADERS,
                 columns: Array.from({ length: 5 }, () => ({ type: "text", renderer: errorCellRenderer })),
-                cells: (row, col) => ({
-                    renderer: errorCellRenderer,
-                    readOnly: true
-                })
+                cells: function (row, col) {
+                    return getCellsMeta(this, row, col);
+                }
             });
             return;
         }
@@ -721,7 +793,9 @@
         hot.updateSettings({
             colHeaders: headers,
             columns: Array.from({ length: n }, () => ({ type: "text", renderer: errorCellRenderer })),
-            cells: (row, col) => getCellsMeta(row, col)
+            cells: function (row, col) {
+                return getCellsMeta(this, row, col);
+            }
         });
     };
 
@@ -730,7 +804,9 @@
         rowHeaders: true,
         colHeaders: BASE_HEADERS_8,
         columns: Array.from({ length: 9 }, () => ({ type: "text", renderer: errorCellRenderer })),
-        cells: (row, col) => getCellsMeta(row, col),
+        cells: function (row, col) {
+            return getCellsMeta(this, row, col);
+        },
         stretchH: "all",
         width: "100%",
         height: "100%",
@@ -747,6 +823,46 @@
         if (col === colAmount()) {
             TH.classList.add("ht-amount-header");
         }
+    });
+
+    // B-T7: F3 快捷键 — 在柜体视图下跳到当前柜的下一个未填价行（单价单元格）
+    // 仅在 Handsontable 持焦时拦截，不影响浏览器其它页面的 F3 搜索行为
+    hot.addHook("beforeKeyDown", (event) => {
+        if (event.key !== "F3" && event.keyCode !== 114) return;
+        if (!cabinetViewActive || summaryMode) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+
+        const cPrice = colPrice();
+        const selected = hot.getSelected();
+        const startRow = (selected && selected.length > 0) ? Math.max(0, selected[0][0] + 1) : 0;
+        const total = hot.countRows();
+        let found = -1;
+        for (let r = startRow; r < total; r++) {
+            const v = hot.getDataAtCell(r, cPrice);
+            const num = Number((v ?? "").toString().trim());
+            if (!Number.isFinite(num) || num <= 0) {
+                found = r;
+                break;
+            }
+        }
+        if (found < 0) {
+            // 从开头再扫一遍（环绕），防止用户已经在末尾
+            for (let r = 0; r < startRow; r++) {
+                const v = hot.getDataAtCell(r, cPrice);
+                const num = Number((v ?? "").toString().trim());
+                if (!Number.isFinite(num) || num <= 0) {
+                    found = r;
+                    break;
+                }
+            }
+        }
+        if (found < 0) {
+            setMessage("本柜已全部填价。按 ESC 关闭抽屉，或切换到其它柜继续。", false);
+            return;
+        }
+        hot.selectCell(found, cPrice);
+        hot.scrollViewportTo(found, cPrice);
     });
 
     const enterSummaryMode = () => {
@@ -1009,6 +1125,24 @@
     const getSummaryChangedItems = () => {
         const data = hot.getData();
         const changed = [];
+        if (rootSummaryMode) {
+            for (let i = 0; i < summaryOriginalRows.length; i += 1) {
+                const row = Array.isArray(data[i]) ? data[i] : [];
+                if (isRootSummaryTotalRow(i)) break;
+                const oldRow = summaryOriginalRows[i];
+                if (!oldRow) continue;
+                const newPrice = parseDecimalOrZero(row[ROOT_COL_PRICE]);
+                if (newPrice === oldRow.price) continue;
+                changed.push({
+                    matchKey: oldRow.matchKey,
+                    newUnit: oldRow.unit,
+                    newPrice,
+                    newFloatRate: oldRow.floatRate,
+                    newVendor: oldRow.vendor
+                });
+            }
+            return changed;
+        }
         const count = Math.min(data.length, summaryOriginalRows.length);
         for (let i = 0; i < count; i += 1) {
             const row = Array.isArray(data[i]) ? data[i] : [];
@@ -1066,6 +1200,9 @@
                 ? `${cab.name}（${target}）`
                 : `控制柜 ${target}`;
             updateCabinetStatusBar(label);
+            // B-T5: 切柜后刷新全局进度看板 + 显示徽章
+            updateProgressVisibility();
+            refreshProgress();
             setMessage(
                 `已加载 ${target} 柜内元件清单，共 ${hot.countRows()} 条。`,
                 false
@@ -1095,26 +1232,43 @@
             }
             const rows = Array.isArray(result.rows) ? result.rows : [];
 
-            // Req 15.2: 按 x_mc、x_ggxh、x_dj 分组，显示合计数量
+            // Req 15.2: 按 x_mc、x_ggxh、单价(x_bj_dj，API 字段名仍为 x_dj) 分组
             const groupMap = new Map();
             rows.forEach((x) => {
                 const name = (x.x_mc ?? "").toString().trim();
                 const spec = (x.x_ggxh ?? "").toString().trim();
                 const price = Number(x.x_dj ?? 0);
                 const qty = Number(x.x_sl ?? 0);
+                const floatRate = Number(x.x_fdds ?? 0);
+                const lineAmount = x.amount != null && x.amount !== undefined
+                    ? Number(x.amount)
+                    : price * (1 + floatRate / 100) * qty;
                 const key = `${name}\x00${spec}\x00${price}`;
                 if (groupMap.has(key)) {
-                    groupMap.get(key).qty += qty;
+                    const g = groupMap.get(key);
+                    g.qty += qty;
+                    g.amountSum += lineAmount;
                 } else {
-                    groupMap.set(key, { name, spec, price, qty });
+                    groupMap.set(key, {
+                        name,
+                        spec,
+                        price,
+                        qty,
+                        amountSum: lineAmount,
+                        matchKey: (x.matchKey ?? "").toString(),
+                        unit: (x.x_dw ?? "").toString().trim(),
+                        floatRate,
+                        vendor: (x.x_sccj ?? "").toString().trim()
+                    });
                 }
             });
 
             // Req 15.3: 显示列：元件名称、规格型号、单价、合计数量、金额小计
             let totalAmount = 0;
             const mapped = [];
+            summaryOriginalRows = [];
             for (const group of groupMap.values()) {
-                const subtotal = group.price * group.qty;
+                const subtotal = group.amountSum;
                 totalAmount += subtotal;
                 mapped.push([
                     group.name,
@@ -1123,6 +1277,15 @@
                     group.qty === 0 ? "" : group.qty.toFixed(4).replace(/\.?0+$/, ""),
                     subtotal === 0 ? "" : subtotal.toFixed(2)
                 ]);
+                summaryOriginalRows.push({
+                    matchKey: group.matchKey,
+                    name: group.name,
+                    spec: group.spec,
+                    unit: group.unit,
+                    price: group.price,
+                    floatRate: group.floatRate,
+                    vendor: group.vendor
+                });
             }
 
             // Req 15.4: 底部显示总金额合计行
@@ -1134,24 +1297,21 @@
                 totalAmount === 0 ? "" : totalAmount.toFixed(2)
             ]);
 
-            // 保存原始行数据供 usage panel 使用
-            summaryOriginalRows = rows.map((x) => ({
-                matchKey: (x.matchKey ?? "").toString(),
-                name: (x.x_mc ?? "").toString().trim(),
-                spec: (x.x_ggxh ?? "").toString().trim(),
-                unit: (x.x_dw ?? "").toString().trim(),
-                price: Number(x.x_dj ?? 0),
-                floatRate: Number(x.x_fdds ?? 0),
-                vendor: (x.x_sccj ?? "").toString().trim()
-            }));
-
             hot.loadData(mapped);
-            // Req 15.5: 只读状态
-            projectSummaryReadOnly = true;
+            // 有编辑权限时允许改单价并保存；只读账号仍保持全表只读
+            projectSummaryReadOnly = globalReadOnly;
             enterSummaryMode();
             // 状态栏更新：根节点 + 总金额（Req 16.1, 16.3）
             updateCabinetStatusBar(quotationName ? `${quotationName}（项目汇总）` : "项目汇总");
-            setMessage(`已加载项目元件汇总，共 ${mapped.length - 1} 组（按名称/规格/单价分组），总金额：¥${totalAmount.toFixed(2)}`, false);
+            // B-T5: 进入项目汇总视图后隐藏进度徽章组（Req B-1.6/B-3.6）
+            updateProgressVisibility();
+            const editHint = globalReadOnly
+                ? ""
+                : "；可直接修改「单价」列，金额小计与合计将自动重算，修改后请点击「保存数据」。";
+            setMessage(
+                `已加载项目元件汇总，共 ${mapped.length - 1} 组（按名称/规格/单价分组），总金额：¥${totalAmount.toFixed(2)}${editHint}`,
+                false
+            );
         } catch (error) {
             const message = error instanceof Error ? error.message : "读取项目元件汇总失败";
             rootSummaryMode = false;
@@ -1167,6 +1327,262 @@
         const displayInfo = displayInfoFromHotRow(rowIndex);
         await fetchComponentUsageByWzdh(wzdh, displayInfo);
     };
+
+    // ====================================================================
+    // 填价进度看板（spec: fill-progress-dashboard / Req B-1, B-2, B-3）
+    // ====================================================================
+
+    const ISSUE_LABEL = {
+        negative: "负数",
+        zero_price: "零价",
+        deviation: "偏离",
+        missing_spec: "缺规格"
+    };
+
+    /** 进度看板状态 */
+    const progressState = {
+        data: null,
+        refreshing: false,
+        debounceTimer: 0
+    };
+
+    /**
+     * 设置徽章可见性。规则（Req B-1.6 / B-3.6）：
+     *   - 项目根汇总视图（summaryMode 真）下整组隐藏，因为汇总本身就是全景
+     *   - 退出汇总视图时恢复显示
+     */
+    const updateProgressVisibility = () => {
+        if (!fillProgressBadgeEl) return;
+        const shouldHide = summaryMode || rootSummaryMode;
+        fillProgressBadgeEl.classList.toggle("d-none", shouldHide);
+        if (shouldHide && problemListDrawerEl && !problemListDrawerEl.classList.contains("d-none")) {
+            problemDrawer.close();
+        }
+    };
+
+    /**
+     * 把后端 DTO 渲染到徽章。空数据时显示 0/0（–）。
+     * @param {Object|null} dto
+     */
+    const renderProgressBadge = (dto) => {
+        if (!fillProgressBadgeEl) return;
+        if (!dto) {
+            if (progressFilledEl) progressFilledEl.textContent = "—";
+            if (progressTotalEl) progressTotalEl.textContent = "—";
+            if (progressPercentEl) progressPercentEl.textContent = "统计失败";
+            if (anomalyCountEl) anomalyCountEl.textContent = "—";
+            if (problemListToggleEl) problemListToggleEl.disabled = true;
+            return;
+        }
+        const total = Number(dto.totalRows || 0);
+        const filled = Number(dto.filledRows || 0);
+        const anomalyTotal = Number(dto.anomalies?.total ?? 0);
+
+        if (progressFilledEl) progressFilledEl.textContent = String(filled);
+        if (progressTotalEl) progressTotalEl.textContent = String(total);
+        if (progressPercentEl) {
+            progressPercentEl.textContent = total > 0
+                ? `${Math.round((filled / total) * 100)}%`
+                : "–";
+        }
+        if (anomalyCountEl) anomalyCountEl.textContent = String(anomalyTotal);
+        if (problemListToggleEl) problemListToggleEl.disabled = anomalyTotal === 0;
+    };
+
+    /**
+     * 进度看板核心：从后端取数据 + 渲染徽章 + 同步抽屉内容（若打开）。
+     * 设计上不阻塞表格编辑：失败仅在徽章显示"统计失败"。
+     */
+    const refreshProgress = async () => {
+        if (!fillProgressUrl || !fillProgressBadgeEl) return;
+        if (progressState.refreshing) return;
+        progressState.refreshing = true;
+        try {
+            const response = await fetch(fillProgressUrl, { method: "GET" });
+            const result = await response.json();
+            if (!response.ok || !result || !result.success) {
+                throw new Error(result?.message || "进度查询失败");
+            }
+            progressState.data = result.data || null;
+            renderProgressBadge(progressState.data);
+            if (problemListDrawerEl && !problemListDrawerEl.classList.contains("d-none")) {
+                problemDrawer.render(progressState.data);
+            }
+        } catch (_err) {
+            renderProgressBadge(null);
+        } finally {
+            progressState.refreshing = false;
+        }
+    };
+
+    /**
+     * 防抖刷新（编辑触发时使用，避免连击造成请求风暴）。
+     */
+    const refreshProgressDebounced = () => {
+        clearTimeout(progressState.debounceTimer);
+        progressState.debounceTimer = setTimeout(refreshProgress, 500);
+    };
+
+    // ====================================================================
+    // 问题清单抽屉（B-T6）
+    // ====================================================================
+
+    const problemDrawer = {
+        open: () => {
+            if (!problemListDrawerEl) return;
+            problemListDrawerEl.classList.remove("d-none");
+            problemListDrawerEl.setAttribute("aria-hidden", "false");
+            problemDrawer.render(progressState.data);
+        },
+        close: () => {
+            if (!problemListDrawerEl) return;
+            problemListDrawerEl.classList.add("d-none");
+            problemListDrawerEl.setAttribute("aria-hidden", "true");
+        },
+        toggle: () => {
+            if (!problemListDrawerEl) return;
+            if (problemListDrawerEl.classList.contains("d-none")) {
+                problemDrawer.open();
+            } else {
+                problemDrawer.close();
+            }
+        },
+        render: (dto) => {
+            if (!problemListBodyEl) return;
+            const problems = Array.isArray(dto?.problems) ? dto.problems : [];
+            if (problems.length === 0) {
+                problemListBodyEl.innerHTML = '<div class="text-muted small text-center py-4">当前无异常项 🎉</div>';
+                if (problemListSummaryEl) problemListSummaryEl.textContent = "共 0 条";
+                return;
+            }
+            // 按柜分组
+            const groups = new Map();
+            for (const p of problems) {
+                const key = p.cabinetCode || "";
+                if (!groups.has(key)) {
+                    groups.set(key, { name: p.cabinetName || key, items: [] });
+                }
+                groups.get(key).items.push(p);
+            }
+            // 渲染分组（首屏限制 200 条总量，B-T5/Req B-5.2）
+            const RENDER_LIMIT = 200;
+            let rendered = 0;
+            const parts = [];
+            for (const [cabCode, group] of groups) {
+                parts.push(
+                    `<div class="problem-list-group" data-cab-code="${escapeHtml(cabCode)}">` +
+                    `<div class="group-header">` +
+                    `<span><i class="bi bi-box-seam me-1"></i>${escapeHtml(group.name)} <span class="text-muted small">(${group.items.length})</span></span>` +
+                    `<i class="bi bi-chevron-down"></i>` +
+                    `</div>` +
+                    `<ul class="group-items">`
+                );
+                for (const item of group.items) {
+                    if (rendered >= RENDER_LIMIT) break;
+                    rendered++;
+                    const issueLabel = ISSUE_LABEL[item.issueType] || item.issueType;
+                    const priceStr = formatNumber(item.currentPrice);
+                    const avgStr = item.avgPrice != null ? `（均价 ¥${formatNumber(item.avgPrice)}）` : "";
+                    parts.push(
+                        `<li class="problem-list-item" data-cab-code="${escapeHtml(cabCode)}" data-row-seq="${item.rowSeq}">` +
+                        `<span class="issue-badge issue-${item.issueType}">${issueLabel}</span>` +
+                        `<span>${escapeHtml(item.name || "(无名)")} · ${escapeHtml(item.spec || "(无规格)")} · ¥${priceStr}${avgStr}</span>` +
+                        `</li>`
+                    );
+                }
+                parts.push(`</ul></div>`);
+                if (rendered >= RENDER_LIMIT) break;
+            }
+            const more = problems.length > RENDER_LIMIT
+                ? `<div class="text-muted small text-center py-2">还有 ${problems.length - RENDER_LIMIT} 条未显示，建议先处理已显示的问题。</div>`
+                : "";
+            problemListBodyEl.innerHTML = parts.join("") + more;
+            if (problemListSummaryEl) {
+                problemListSummaryEl.textContent = `共 ${problems.length} 条`
+                    + (problems.length > RENDER_LIMIT ? `（显示前 ${RENDER_LIMIT}）` : "");
+            }
+        },
+        /**
+         * 跳转到指定柜+行，并临时高亮 2 秒。
+         * 同柜直接 selectCell；跨柜则先加载柜数据。
+         */
+        jumpTo: async (cabinetCode, rowSeq) => {
+            const targetCab = (cabinetCode || "").trim();
+            const rowIdx = Math.max(0, (Number(rowSeq) || 1) - 1);
+            if (!targetCab) return;
+            try {
+                if (currentCabinetUnitCode !== targetCab) {
+                    await loadCabinetComponents(targetCab);
+                }
+                const cPrice = colPrice();
+                if (rowIdx < hot.countRows()) {
+                    hot.selectCell(rowIdx, cPrice);
+                    hot.scrollViewportTo(rowIdx, cPrice);
+                    flashRow(rowIdx);
+                }
+            } catch (err) {
+                setMessage(err instanceof Error ? err.message : "跳转失败", true);
+            }
+        }
+    };
+
+    /** 给指定行的所有单元格临时加 .hot-row-flash 类，触发 CSS 动画 */
+    const flashRow = (rowIdx) => {
+        try {
+            const colCount = hot.countCols();
+            for (let c = 0; c < colCount; c++) {
+                const td = hot.getCell(rowIdx, c);
+                if (!td) continue;
+                td.classList.remove("hot-row-flash");
+                // 强制 reflow 后再加 class，保证连续点击同一行也会重播动画
+                void td.offsetWidth;
+                td.classList.add("hot-row-flash");
+                setTimeout(() => td.classList.remove("hot-row-flash"), 2100);
+            }
+        } catch (_err) {
+            // 不阻塞跳转
+        }
+    };
+
+    /** 数字格式化（保留 2 位小数；0 时显示 0.00）；escapeHtml 复用文件前部已有定义 */
+    const formatNumber = (n) => {
+        const num = Number(n);
+        if (!Number.isFinite(num)) return "0.00";
+        return num.toFixed(2);
+    };
+
+    // 抽屉事件绑定（顶层一次性绑定）
+    if (problemListToggleEl) {
+        problemListToggleEl.addEventListener("click", () => {
+            if (problemListToggleEl.disabled) return;
+            problemDrawer.toggle();
+        });
+    }
+    if (problemListCloseEl) {
+        problemListCloseEl.addEventListener("click", () => problemDrawer.close());
+    }
+    if (problemListDrawerEl) {
+        // overlay 点击关闭
+        problemListDrawerEl.addEventListener("click", (event) => {
+            if (event.target.classList.contains("drawer-overlay")) {
+                problemDrawer.close();
+            }
+        });
+        // 委托：点击问题项跳转
+        problemListBodyEl?.addEventListener("click", (event) => {
+            const item = event.target.closest(".problem-list-item");
+            if (!item) return;
+            const cabCode = item.getAttribute("data-cab-code") || "";
+            const rowSeq = item.getAttribute("data-row-seq") || "1";
+            problemDrawer.jumpTo(cabCode, rowSeq);
+        });
+    }
+    // ESC 关闭抽屉
+    document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && problemListDrawerEl && !problemListDrawerEl.classList.contains("d-none")) {
+            problemDrawer.close();
+        }
+    });
 
     if (showRefPriceCb) {
         showRefPriceCb.addEventListener("change", async () => {
@@ -1214,6 +1630,218 @@
         });
     }
 
+    // ========== 按 x_wzdh 全项目统一单价 ==========
+    let syncPriceDebounceTimer = 0;
+    let syncPriceInFlight = false;
+
+    const parseCodesFromMatchKey = (matchKey) => {
+        const raw = (matchKey || "").trim();
+        if (!raw.toLowerCase().startsWith("codes:")) {
+            return [];
+        }
+        return raw.slice(6).split(",").map((s) => s.trim()).filter(Boolean);
+    };
+
+    const fetchWzdhSyncStats = async (wzdh) => {
+        if (!wzdhSyncStatsUrl) {
+            throw new Error("同步统计接口未配置");
+        }
+        const connector = wzdhSyncStatsUrl.includes("?") ? "&" : "?";
+        const response = await fetch(`${wzdhSyncStatsUrl}${connector}wzdh=${encodeURIComponent(wzdh)}`, { method: "GET" });
+        const result = await response.json();
+        if (!response.ok || !result.success) {
+            throw new Error(result.message || "查询元件使用统计失败");
+        }
+        return result;
+    };
+
+    const postApplyPriceSync = async ({ wzdh, newPrice, codes }) => {
+        if (!applyPriceByWzdhUrl) {
+            throw new Error("同步单价接口未配置");
+        }
+        const response = await fetch(applyPriceByWzdhUrl, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                ...(getToken() ? { RequestVerificationToken: getToken() } : {})
+            },
+            body: JSON.stringify({
+                wzdh: wzdh || "",
+                newPrice,
+                codes: codes || []
+            })
+        });
+        return readJsonResponse(response, "同步单价失败");
+    };
+
+    /** 柜体视图：把当前表格内同 wzdh 行的单价与金额列同步为 newPrice */
+    const applyLocalCabinetRowsByWzdh = (wzdh, newPrice) => {
+        const wzdhKey = wzdh.toLowerCase();
+        const cPrice = colPrice();
+        const cQty = colQty();
+        const cFloat = colFloat();
+        const cAmt = colAmount();
+        const changes = [];
+        for (let r = 0; r < hot.countRows(); r++) {
+            const rowWzdh = (currentRowWzdh[r] || "").trim().toLowerCase();
+            if (rowWzdh !== wzdhKey) {
+                continue;
+            }
+            const priceText = newPrice === 0 ? "" : String(newPrice);
+            changes.push([r, cPrice, priceText]);
+            const rowData = hot.getData()[r];
+            if (Array.isArray(rowData)) {
+                const amount = calcAmountValue(newPrice, rowData[cFloat], rowData[cQty]);
+                changes.push([r, cAmt, amount]);
+            }
+        }
+        if (changes.length > 0) {
+            hot.setDataAtCell(changes, "syncByWzdh");
+            applyPriceAnomalyStyles();
+            recalcTotalAmount();
+        }
+    };
+
+    const revertCabinetPriceCell = (rowIndex, oldPrice) => {
+        const cPrice = colPrice();
+        const cQty = colQty();
+        const cFloat = colFloat();
+        const cAmt = colAmount();
+        const priceText = oldPrice === 0 ? "" : String(oldPrice);
+        hot.setDataAtCell(rowIndex, cPrice, priceText, "rollbackPrice");
+        const rowData = hot.getData()[rowIndex];
+        if (Array.isArray(rowData)) {
+            const amount = calcAmountValue(oldPrice, rowData[cFloat], rowData[cQty]);
+            hot.setDataAtCell(rowIndex, cAmt, amount, "rollbackPrice");
+        }
+    };
+
+    const runCabinetPriceSync = async (rowIndex, newPrice, oldPrice) => {
+        if (syncPriceInFlight || globalReadOnly || !cabinetViewActive) {
+            return;
+        }
+        const wzdh = (currentRowWzdh[rowIndex] || "").trim();
+        const display = displayInfoFromHotRow(rowIndex);
+        const label = `${display.name} ${display.spec}`.trim() || "当前元件";
+
+        if (!wzdh) {
+            setMessage(`「${label}」未填规格型号，无法识别为同一型号，仅保留当前行修改（不会同步到其它控制柜）。`, false);
+            return;
+        }
+
+        try {
+            const stats = await fetchWzdhSyncStats(wzdh);
+            const totalRows = Number(stats.totalRows || 0);
+            const cabinetCount = Number(stats.cabinetCount || 0);
+            const cabinets = Array.isArray(stats.cabinets) ? stats.cabinets : [];
+
+            if (totalRows <= 1) {
+                syncPriceInFlight = true;
+                const result = await postApplyPriceSync({ wzdh, newPrice, codes: [] });
+                applyLocalCabinetRowsByWzdh(wzdh, newPrice);
+                setMessage(result.message || `已更新「${label}」单价。`, false);
+                refreshProgressDebounced();
+                return;
+            }
+
+            const cabNames = cabinets
+                .map((c) => (c.unitName || c.unitCode || "").toString().trim())
+                .filter(Boolean)
+                .join("、");
+            const confirmed = window.confirm(
+                `「${label}」在本项目共有 ${totalRows} 处使用（${cabinetCount} 个控制柜${cabNames ? "：" + cabNames : ""}）。\n\n是否将全部统一更新为 ¥${newPrice.toFixed(2)}？`
+            );
+            if (!confirmed) {
+                revertCabinetPriceCell(rowIndex, oldPrice);
+                setMessage("已取消同步，仅保留您刚才输入前的价格。", false);
+                return;
+            }
+
+            syncPriceInFlight = true;
+            const result = await postApplyPriceSync({ wzdh, newPrice, codes: [] });
+            applyLocalCabinetRowsByWzdh(wzdh, newPrice);
+            const unitCodes = cabinets.map((c) => (c.unitCode || "").toString().trim()).filter(Boolean);
+            if (unitCodes.length > 0) {
+                highlightTreeUnits(unitCodes);
+            }
+            setMessage(result.message || `已同步 ${totalRows} 处单价。`, false);
+            refreshProgressDebounced();
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "同步单价失败";
+            setMessage(message, true);
+        } finally {
+            syncPriceInFlight = false;
+        }
+    };
+
+    const runRootSummaryPriceSync = async (rowIndex, newPrice, oldPrice) => {
+        if (syncPriceInFlight || globalReadOnly || !rootSummaryMode || isRootSummaryTotalRow(rowIndex)) {
+            return;
+        }
+        const meta = summaryOriginalRows[rowIndex];
+        if (!meta) {
+            return;
+        }
+        const codes = parseCodesFromMatchKey(meta.matchKey);
+        const label = `${meta.name} ${meta.spec}`.trim() || "当前分组";
+
+        if (codes.length === 0) {
+            setMessage(`「${label}」无法解析元件编码，请使用「保存数据」写入修改。`, false);
+            return;
+        }
+
+        if (codes.length <= 1) {
+            syncPriceInFlight = true;
+            try {
+                const result = await postApplyPriceSync({ wzdh: "", newPrice, codes });
+                recalcRootSummaryRow(rowIndex);
+                recalcRootSummaryGrandTotal();
+                summaryDirty = false;
+                meta.price = newPrice;
+                setMessage(result.message || `已更新「${label}」单价。`, false);
+                refreshProgressDebounced();
+            } catch (error) {
+                const message = error instanceof Error ? error.message : "同步单价失败";
+                setMessage(message, true);
+            } finally {
+                syncPriceInFlight = false;
+            }
+            return;
+        }
+
+        const confirmed = window.confirm(
+            `「${label}」在本项目共有 ${codes.length} 处元件记录。\n\n是否将全部统一更新为 ¥${newPrice.toFixed(2)}？`
+        );
+        if (!confirmed) {
+            hot.setDataAtCell(
+                rowIndex,
+                ROOT_COL_PRICE,
+                oldPrice === 0 ? "" : String(oldPrice),
+                "rollbackPrice"
+            );
+            recalcRootSummaryRow(rowIndex);
+            recalcRootSummaryGrandTotal();
+            setMessage("已取消同步。", false);
+            return;
+        }
+
+        syncPriceInFlight = true;
+        try {
+            const result = await postApplyPriceSync({ wzdh: "", newPrice, codes });
+            recalcRootSummaryRow(rowIndex);
+            recalcRootSummaryGrandTotal();
+            summaryDirty = false;
+            meta.price = newPrice;
+            setMessage(result.message || `已同步 ${codes.length} 处单价。`, false);
+            refreshProgressDebounced();
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "同步单价失败";
+            setMessage(message, true);
+        } finally {
+            syncPriceInFlight = false;
+        }
+    };
+
     hot.addHook("afterSelectionEnd", (row, column, row2, column2) => {
         const r2 = row2 !== undefined && row2 !== null ? row2 : row;
         const r = Math.min(row, r2);
@@ -1230,7 +1858,32 @@
     });
 
     hot.addHook("afterChange", (changes, source) => {
-        if (!changes || source === "loadData" || source === "recalcAmount" || source === "addRow") {
+        if (!changes || source === "loadData" || source === "recalcAmount" || source === "addRow"
+            || source === "syncByWzdh" || source === "rollbackPrice") {
+            return;
+        }
+        if (rootSummaryMode) {
+            let priceChanged = false;
+            for (const [row, col, oldVal, newVal] of changes) {
+                if (col === ROOT_COL_PRICE && !isRootSummaryTotalRow(row)) {
+                    priceChanged = true;
+                    recalcRootSummaryRow(row);
+                    const oldPrice = parseDecimalOrZero(oldVal);
+                    const newPrice = parseDecimalOrZero(newVal);
+                    if (oldPrice !== newPrice) {
+                        clearTimeout(syncPriceDebounceTimer);
+                        syncPriceDebounceTimer = setTimeout(
+                            () => runRootSummaryPriceSync(row, newPrice, oldPrice),
+                            500
+                        );
+                    }
+                }
+            }
+            if (priceChanged) {
+                recalcRootSummaryGrandTotal();
+                summaryDirty = true;
+                applyButtonStates();
+            }
             return;
         }
         if (summaryMode) {
@@ -1277,6 +1930,23 @@
         // Req 9.6: 单价单元格值变更后触发价格异常检测着色
         if (priceChanged) {
             applyPriceAnomalyStyles();
+            // B-T5: 价格变更后防抖刷新进度看板（避免连击造成请求风暴）
+            refreshProgressDebounced();
+            for (const [row, col, oldVal, newVal] of changes) {
+                if (col !== colPrice()) {
+                    continue;
+                }
+                const oldPrice = parseDecimalOrZero(oldVal);
+                const newPrice = parseDecimalOrZero(newVal);
+                if (oldPrice === newPrice) {
+                    continue;
+                }
+                clearTimeout(syncPriceDebounceTimer);
+                syncPriceDebounceTimer = setTimeout(
+                    () => runCabinetPriceSync(row, newPrice, oldPrice),
+                    500
+                );
+            }
         }
     });
 
@@ -1344,15 +2014,18 @@
     const validateBeforeSave = () => {
         const data = hot.getData();
         const negativeItems = [];
-        const cPrice = colPrice();
+        const priceCol = rootSummaryMode ? ROOT_COL_PRICE : colPrice();
+        const nameCol = rootSummaryMode ? 0 : 1;
+        const specCol = rootSummaryMode ? 1 : 2;
 
         for (let r = 0; r < data.length; r++) {
+            if (rootSummaryMode && isRootSummaryTotalRow(r)) continue;
             const rowData = data[r];
             if (!Array.isArray(rowData)) continue;
-            const price = parseDecimalOrZero(rowData[cPrice]);
+            const price = parseDecimalOrZero(rowData[priceCol]);
             if (price < 0) {
-                const name = (rowData[1] || "").toString().trim();
-                const spec = (rowData[2] || "").toString().trim();
+                const name = (rowData[nameCol] || "").toString().trim();
+                const spec = (rowData[specCol] || "").toString().trim();
                 negativeItems.push({ row: r, name, spec });
             }
         }
@@ -1400,6 +2073,8 @@
                     throw new Error(result.message || "保存数据失败");
                 }
                 await loadProjectComponentSummary();
+                // B-T5: 保存成功后刷新进度看板（即便项目汇总视图徽章被隐藏，也保持数据新鲜以备退出汇总时立即可见）
+                refreshProgress();
                 setMessage(result.message || "保存数据成功。", false);
             } catch (error) {
                 const message = error instanceof Error ? error.message : "保存数据失败";
@@ -1594,6 +2269,8 @@
 
             // Req 9.6: 自动填价完成后触发价格异常检测着色
             applyPriceAnomalyStyles();
+            // B-T5: 自动填价完成后立即刷新进度看板
+            refreshProgress();
 
             // Req 3.6: 显示匹配统计信息
             const msg = `已匹配 ${stats.matched}/${stats.total} 个元件的历史报价，${stats.unmatched} 个元件无历史记录`;
@@ -1814,4 +2491,7 @@
     }
 
     applyButtonStates();
+    // B-T5: 页面加载完成后立即取一次进度（无论用户是否点击柜节点）
+    updateProgressVisibility();
+    refreshProgress();
 })();

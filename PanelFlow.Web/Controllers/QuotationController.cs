@@ -127,11 +127,14 @@ public class QuotationController : Controller
         return Json(items);
     }
 
-    [HttpGet]
+﻿    [HttpGet]
     public async Task<IActionResult> Edit(string id)
     {
         ViewData["Title"] = "编辑报价单";
         ViewData["BreadcrumbTitle"] = "编辑报价单";
+
+        var loginUser = HttpContext.Session.GetLoginUser();
+        var userName = (loginUser?.UserName ?? string.Empty).Trim();
 
         var dto = await _quotationService.GetByQuotationNoAsync(id);
         if (dto == null)
@@ -140,7 +143,14 @@ public class QuotationController : Controller
             return RedirectToAction(nameof(Index));
         }
 
-        return View(await ToEditModelAsync(dto));
+        var (allowed, accessMessage) = await _quotationService.ValidateEditAccessAsync(id, userName);
+        if (!allowed)
+        {
+            TempData["ErrorMessage"] = accessMessage;
+            return RedirectToAction(nameof(Index));
+        }
+
+        return View(await ToEditModelAsync(dto, userName));
     }
 
     /// <summary>
@@ -236,7 +246,7 @@ public class QuotationController : Controller
         var quotationNo = (dto.QuotationNo ?? string.Empty).Trim();
         var treeNodes = await _db.BjbItems
             .AsNoTracking()
-            .Where(x => x.fabh.Trim() == quotationNo)
+            .Where(x => x.fabh == quotationNo)
             .Select(x => new
             {
                 Code = (x.x_bm ?? string.Empty).Trim(),
@@ -281,7 +291,7 @@ public class QuotationController : Controller
 
         var rows = await _db.BjbItems
             .AsNoTracking()
-            .Where(x => x.fabh.Trim() == quotationNo)
+            .Where(x => x.fabh == quotationNo)
             .Select(x => new
             {
                 Code = (x.x_bm ?? string.Empty).Trim(),
@@ -371,7 +381,7 @@ ORDER BY b.x_bm",
         // 查询当前控制柜下的元件行，与 GetCabinetComponents 使用相同筛选和排序
         var bjbRows = await _db.BjbItems
             .AsNoTracking()
-            .Where(x => x.fabh.Trim() == quotationNo)
+            .Where(x => x.fabh == quotationNo)
             .Select(x => new
             {
                 Code = (x.x_bm ?? string.Empty).Trim(),
@@ -520,14 +530,16 @@ ORDER BY b.x_bm",
 
         var rows = await _db.BjbItems
             .AsNoTracking()
-            .Where(x => x.fabh.Trim() == quotationNo)
+            .Where(x => x.fabh == quotationNo)
             .Select(x => new
             {
                 Code = (x.x_bm ?? string.Empty).Trim(),
                 Name = (x.x_mc ?? string.Empty).Trim(),
                 Spec = (x.x_ggxh ?? string.Empty).Trim(),
                 Unit = (x.x_dw ?? string.Empty).Trim(),
-                Price = x.x_dj ?? 0m,
+                // 与柜体视图 GetCabinetComponents 一致：汇总「单价」列取 x_bj_dj（报价单价），
+                // 勿用 x_dj——历史数据常只维护了 x_bj_dj，x_dj 要等 SavePlan 才按浮动率回写。
+                Price = x.x_bj_dj ?? 0m,
                 Qty = x.x_sl ?? 0m,
                 FloatRate = x.x_fdds ?? 0m,
                 Vendor = (x.x_sccj ?? string.Empty).Trim()
@@ -555,6 +567,8 @@ ORDER BY b.x_bm",
                 x_sl = g.Sum(x => x.Qty),
                 x_fdds = g.Key.FloatRate,
                 x_sccj = g.Key.Vendor,
+                // 金额小计 = Σ(x_bj_dj * (1 + x_fdds/100) * x_sl)，与柜体金额列公式一致
+                amount = g.Sum(x => x.Price * (1 + x.FloatRate / 100m) * x.Qty),
                 matchKey = BuildSummaryMatchKey(g.Select(x => x.Code))
             })
             .OrderBy(x => x.x_mc)
@@ -595,7 +609,7 @@ ORDER BY b.x_bm",
 
         var rows = await _db.BjbItems
             .AsNoTracking()
-            .Where(x => x.fabh.Trim() == quotationNo)
+            .Where(x => x.fabh == quotationNo)
             .Select(x => new
             {
                 Code = (x.x_bm ?? string.Empty).Trim(),
@@ -653,6 +667,244 @@ ORDER BY b.x_bm",
         return Ok(new { success = true, rows = usage });
     }
 
+    /// <summary>
+    /// 查询某 x_wzdh 在本报价单内的使用统计（行数、涉及控制柜），供改价前提示用户。
+    /// </summary>
+    [HttpGet]
+    public async Task<IActionResult> GetComponentWzdhSyncStats(string id, string wzdh)
+    {
+        var quotationNo = (id ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(quotationNo))
+            return BadRequest(new { success = false, message = "报价单编号不能为空" });
+
+        var targetWzdh = (wzdh ?? string.Empty).Trim();
+        if (string.IsNullOrEmpty(targetWzdh))
+        {
+            return Ok(new
+            {
+                success = true,
+                totalRows = 0,
+                cabinetCount = 0,
+                cabinets = Array.Empty<object>(),
+                message = "该元件未填规格型号，无法识别为同一型号"
+            });
+        }
+
+        var matches = await FindComponentRowsByWzdhAsync(quotationNo, targetWzdh);
+        var cabinets = matches
+            .GroupBy(x => x.CabCode)
+            .Select(g => new
+            {
+                unitCode = g.Key,
+                unitName = g.First().CabName,
+                rowCount = g.Count()
+            })
+            .OrderBy(x => x.unitCode)
+            .ToList();
+
+        return Ok(new
+        {
+            success = true,
+            totalRows = matches.Count,
+            cabinetCount = cabinets.Count,
+            cabinets,
+            message = matches.Count == 0
+                ? "本项目中未找到相同型号的元件"
+                : $"本项目中共有 {matches.Count} 处使用（{cabinets.Count} 个控制柜）"
+        });
+    }
+
+    /// <summary>
+    /// 按 x_wzdh 将单价同步写入本报价单内所有匹配的元件行（x_bj_dj / x_dj 等字段与 SaveProjectComponentSummary 一致）。
+    /// </summary>
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> ApplyComponentPriceByWzdh(string id, [FromBody] ApplyComponentPriceByWzdhRequest? request)
+    {
+        var quotationNo = (id ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(quotationNo))
+            return BadRequest(new { success = false, message = "报价单编号不能为空" });
+
+        if (request == null)
+            return BadRequest(new { success = false, message = "请求体不能为空" });
+
+        if (request.NewPrice < 0)
+            return BadRequest(new { success = false, message = "单价不能为负数" });
+
+        var explicitCodes = (request.Codes ?? new List<string>())
+            .Select(c => c.Trim())
+            .Where(c => !string.IsNullOrEmpty(c))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        List<WzdhComponentMatch> matches;
+        if (explicitCodes.Count > 0)
+        {
+            matches = await FindComponentRowsByCodesAsync(quotationNo, explicitCodes);
+        }
+        else
+        {
+            var targetWzdh = (request.Wzdh ?? string.Empty).Trim();
+            if (string.IsNullOrEmpty(targetWzdh))
+                return BadRequest(new { success = false, message = "型号指纹为空，无法同步" });
+            matches = await FindComponentRowsByWzdhAsync(quotationNo, targetWzdh);
+        }
+
+        if (matches.Count == 0)
+        {
+            return Ok(new
+            {
+                success = true,
+                updatedRows = 0,
+                cabinetCount = 0,
+                message = "未找到需要同步的元件行"
+            });
+        }
+
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            var affected = 0;
+            foreach (var row in matches)
+            {
+                affected += await _db.Database.ExecuteSqlInterpolatedAsync($@"
+UPDATE BJB
+SET x_bj_dj = {request.NewPrice},
+    x_bjb_bj = {request.NewPrice},
+    x_bjb_dj = {request.NewPrice},
+    x_dj = {request.NewPrice}
+WHERE fabh = {quotationNo}
+  AND LTRIM(RTRIM(x_bm)) = {row.Code}");
+            }
+
+            await tx.CommitAsync();
+
+            var cabinetCount = matches.Select(x => x.CabCode).Distinct(StringComparer.Ordinal).Count();
+            var sampleName = matches[0].Name;
+            var sampleSpec = matches[0].Spec;
+            var label = string.IsNullOrWhiteSpace(sampleName)
+                ? (request.Wzdh ?? string.Empty).Trim()
+                : $"{sampleName} {sampleSpec}".Trim();
+
+            var message = affected > 0
+                ? $"已将「{label}」在本项目的 {affected} 处单价统一更新为 ¥{request.NewPrice:F2}（涉及 {cabinetCount} 个控制柜）。"
+                : "未更新任何记录";
+
+            return Ok(new
+            {
+                success = true,
+                updatedRows = affected,
+                cabinetCount,
+                message
+            });
+        }
+        catch (Exception ex)
+        {
+            await tx.RollbackAsync();
+            _logger.LogError(ex, "同步元件单价失败。quotationNo={QuotationNo}", quotationNo);
+            return StatusCode(500, new { success = false, message = $"同步失败：{ex.Message}" });
+        }
+    }
+
+    /// <summary>
+    /// 获取整张报价单的填价进度与异常聚合，供 FillPrice 页右上"进度看板"使用。
+    /// 实现对应 spec：.kiro/specs/fill-progress-dashboard/spec.md  Req B-1 / B-2 / B-3。
+    ///
+    /// 设计要点：
+    ///   * 元件行口径与 GetProjectComponentSummary / GetProjectComponentUsage 完全一致
+    ///     （x_lx=11 且 x_bm.Length=12 且 Substring(4,4)="0001"），避免不同端点
+    ///     "总数对不上"的视觉灾难。
+    ///   * 异常 4 类计数互斥规则：negative / zero_price 与 deviation / missing_spec 之间
+    ///     允许共存（例如一个 wzdh 空且单价负的行会同时计入 missing_spec 与 negative）。
+    ///     这是为了让前端"按类别筛选"时不漏掉任何一类问题。
+    ///   * RowSeq：按 x_bm 字典序在柜内枚举从 1 开始，与 Handsontable 表格行号
+    ///     （loadCabinetComponents 加载后的展示顺序）保持一致，前端点击"跳转"才能定位。
+    ///   * STD_PRICE_HISTORY 用 Dictionary&lt;wzdh,avg_price&gt; 内存查找，
+    ///     OrdinalIgnoreCase 比较器与现有 AutoFillPriceFromHistory 一致。
+    /// </summary>
+    [HttpGet]
+    public async Task<IActionResult> GetProjectFillProgress(string id)
+    {
+        var quotationNo = (id ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(quotationNo))
+            return BadRequest(new { success = false, message = "报价单编号不能为空" });
+
+        // ── 1. 拉取本报价单所有 BJB 行（柜行 + 元件行），用于元件枚举与柜名映射 ──
+        var rows = await _db.BjbItems
+            .AsNoTracking()
+            .Where(x => x.fabh == quotationNo)
+            .Select(x => new
+            {
+                Code = (x.x_bm ?? string.Empty).Trim(),
+                Name = (x.x_mc ?? string.Empty).Trim(),
+                Spec = (x.x_ggxh ?? string.Empty).Trim(),
+                Wzdh = (x.x_wzdh ?? string.Empty).Trim(),
+                Price = x.x_bj_dj ?? 0m,
+                Lx = x.x_lx
+            })
+            .ToListAsync();
+
+        // 柜行 → 柜名映射；"9999" 是历史系统约定的非控制柜节点，与既有逻辑保持一致剔除
+        var cabinetNames = rows
+            .Where(x => x.Code.Length == 4 && x.Code != "9999")
+            .GroupBy(x => x.Code)
+            .ToDictionary(g => g.Key, g => string.IsNullOrWhiteSpace(g.First().Name) ? g.Key : g.First().Name);
+
+        // 元件行筛选 + 按 x_bm 字典序排序，建立柜内 RowSeq
+        var components = rows
+            .Where(x => x.Lx == 11
+                        && x.Code.Length == 12
+                        && x.Code.Substring(4, 4) == "0001")
+            .OrderBy(x => x.Code, StringComparer.Ordinal)
+            .ToList();
+
+        if (components.Count == 0)
+        {
+            return Ok(new
+            {
+                success = true,
+                data = new ProjectFillProgressDto()
+            });
+        }
+
+        // ── 2. 一次性预取所需 STD_PRICE_HISTORY，避免 N+1 ──
+        // 先把 wzdh 兜底好（DB 字段空 → NormalizeSpec(x_ggxh)），再去重，最后查库
+        var componentInputs = components
+            .Select(c => new FillProgressComponentInput(
+                CabinetCode: c.Code[..4],
+                CabinetName: cabinetNames.TryGetValue(c.Code[..4], out var n) ? n : c.Code[..4],
+                Name: c.Name,
+                Spec: c.Spec,
+                EffectiveWzdh: string.IsNullOrWhiteSpace(c.Wzdh) ? NormalizeSpec(c.Spec) : c.Wzdh,
+                Price: c.Price))
+            .ToList();
+
+        var effectiveWzdhs = componentInputs
+            .Select(x => x.EffectiveWzdh)
+            .Where(s => !string.IsNullOrEmpty(s))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var avgPriceMap = await _db.StdPriceHistories
+            .AsNoTracking()
+            .Where(h => effectiveWzdhs.Contains(h.x_wzdh) && h.avg_count > 0)
+            .Select(h => new { h.x_wzdh, h.avg_price })
+            .ToListAsync();
+
+        var avgByWzdh = new Dictionary<string, decimal?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var h in avgPriceMap)
+        {
+            if (!string.IsNullOrEmpty(h.x_wzdh))
+            {
+                avgByWzdh[h.x_wzdh] = h.avg_price;
+            }
+        }
+
+        // ── 3. 调纯函数完成异常归类与计数（同一逻辑被属性测试覆盖） ──
+        var dto = FillProgressCalculator.Calculate(componentInputs, avgByWzdh);
+        return Ok(new { success = true, data = dto });
+    }
+
     [HttpPost]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> SaveProjectComponentSummary(string id, [FromBody] QuotationProjectSummarySaveRequest? request)
@@ -700,7 +952,7 @@ ORDER BY b.x_bm",
                         matched += await _db.Database.SqlQueryRaw<int>($@"
 SELECT COUNT(1)
 FROM BJB
-WHERE LTRIM(RTRIM(fabh)) = {{0}}
+WHERE fabh = {{0}}
   AND LTRIM(RTRIM(x_bm)) = {{1}}", quotationNo, trimmedCode).FirstAsync();
 
                         affectedByCodes += await _db.Database.ExecuteSqlInterpolatedAsync($@"
@@ -712,7 +964,7 @@ SET x_dw = {newUnit},
     x_bj_dj = {item.NewPrice},
     x_bjb_bj = {item.NewPrice},
     x_bjb_dj = {item.NewPrice}
-WHERE LTRIM(RTRIM(fabh)) = {quotationNo}
+WHERE fabh = {quotationNo}
   AND LTRIM(RTRIM(x_bm)) = {trimmedCode}");
                     }
 
@@ -723,7 +975,7 @@ WHERE LTRIM(RTRIM(fabh)) = {quotationNo}
                 var matchedCountSql = await _db.Database.SqlQueryRaw<int>(@"
 SELECT COUNT(1)
 FROM BJB
-WHERE LTRIM(RTRIM(fabh)) = {0}
+WHERE fabh = {0}
   AND LEN(LTRIM(RTRIM(x_bm))) = 12
   AND SUBSTRING(LTRIM(RTRIM(x_bm)), 5, 4) = '0001'
   AND LTRIM(RTRIM(x_mc)) = {1}
@@ -744,7 +996,7 @@ SET x_dw = {newUnit},
     x_bj_dj = {item.NewPrice},
     x_bjb_bj = {item.NewPrice},
     x_bjb_dj = {item.NewPrice}
-WHERE LTRIM(RTRIM(fabh)) = {quotationNo}
+WHERE fabh = {quotationNo}
   AND LEN(LTRIM(RTRIM(x_bm))) = 12
   AND SUBSTRING(LTRIM(RTRIM(x_bm)), 5, 4) = '0001'
   AND LTRIM(RTRIM(x_mc)) = {parsedKey.Name}
@@ -923,7 +1175,7 @@ WHERE LTRIM(RTRIM(fabh)) = {quotationNo}
 
         var quotation = await _db.BjfatQuotations
             .AsNoTracking()
-            .FirstOrDefaultAsync(x => x.fabh.Trim() == fabh);
+            .FirstOrDefaultAsync(x => x.fabh == fabh);
         if (quotation == null)
             return NotFound(new { success = false, message = "方案不存在" });
 
@@ -1057,7 +1309,7 @@ VALUES
 
         var quotation = await _db.BjfatQuotations
             .AsNoTracking()
-            .FirstOrDefaultAsync(x => x.fabh.Trim() == fabh);
+            .FirstOrDefaultAsync(x => x.fabh == fabh);
         if (quotation == null)
             return NotFound(new { success = false, message = "报价单不存在" });
 
@@ -1074,7 +1326,7 @@ VALUES
             // ── 查询 BJB 中 x_lx=11、x_bm.Trim().Length=12 的元件行 ──
             var allComponents = await _db.BjbItems
                 .AsNoTracking()
-                .Where(x => x.fabh.Trim() == fabh && x.x_lx == 11)
+                .Where(x => x.fabh == fabh && x.x_lx == 11)
                 .Select(x => new
                 {
                     Code = (x.x_bm ?? string.Empty).Trim(),
@@ -1185,7 +1437,7 @@ UPDATE BJB
 SET x_bjb_dj = {historyPrice},
     x_bjb_bj = {historyPrice},
     x_bj_dj = {historyPrice}
-WHERE LTRIM(RTRIM(fabh)) = {fabh}
+WHERE fabh = {fabh}
   AND LTRIM(RTRIM(x_bm)) = {row.Code}
   AND x_lx = 11
   AND ISNULL(x_bjb_dj, 0) = 0");
@@ -1446,6 +1698,93 @@ WHERE LTRIM(RTRIM(fabh)) = {fabh}
         return text.Length <= maxLen ? text : text[..maxLen];
     }
 
+    private sealed record WzdhComponentMatch(string Code, string CabCode, string CabName, string Name, string Spec);
+
+    /// <summary>
+    /// 在本报价单内按 x_wzdh（含 NormalizeSpec 兜底）查找所有元件行。
+    /// 口径与 GetProjectComponentUsage 一致。
+    /// </summary>
+    private async Task<List<WzdhComponentMatch>> FindComponentRowsByWzdhAsync(string quotationNo, string targetWzdh)
+    {
+        var rows = await _db.BjbItems
+            .AsNoTracking()
+            .Where(x => x.fabh == quotationNo)
+            .Select(x => new
+            {
+                Code = (x.x_bm ?? string.Empty).Trim(),
+                Name = (x.x_mc ?? string.Empty).Trim(),
+                Spec = (x.x_ggxh ?? string.Empty).Trim(),
+                Wzdh = (x.x_wzdh ?? string.Empty).Trim(),
+                Lx = x.x_lx
+            })
+            .ToListAsync();
+
+        var cabinetNames = rows
+            .Where(x => x.Code.Length == 4 && x.Code != "9999")
+            .GroupBy(x => x.Code)
+            .ToDictionary(g => g.Key, g => string.IsNullOrWhiteSpace(g.First().Name) ? g.Key : g.First().Name);
+
+        return rows
+            .Where(x => x.Lx == 11
+                        && x.Code.Length == 12
+                        && x.Code.Substring(4, 4) == "0001")
+            .Select(x => new
+            {
+                x.Code,
+                x.Name,
+                x.Spec,
+                EffectiveWzdh = string.IsNullOrWhiteSpace(x.Wzdh) ? NormalizeSpec(x.Spec) : x.Wzdh,
+                CabCode = x.Code[..4]
+            })
+            .Where(x => string.Equals(x.EffectiveWzdh, targetWzdh, StringComparison.OrdinalIgnoreCase))
+            .Select(x => new WzdhComponentMatch(
+                x.Code,
+                x.CabCode,
+                cabinetNames.TryGetValue(x.CabCode, out var cabName) ? cabName : x.CabCode,
+                x.Name,
+                x.Spec))
+            .OrderBy(x => x.Code, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private async Task<List<WzdhComponentMatch>> FindComponentRowsByCodesAsync(string quotationNo, IReadOnlyList<string> codes)
+    {
+        if (codes.Count == 0)
+            return new List<WzdhComponentMatch>();
+
+        var codeSet = new HashSet<string>(codes, StringComparer.Ordinal);
+        var rows = await _db.BjbItems
+            .AsNoTracking()
+            .Where(x => x.fabh == quotationNo)
+            .Select(x => new
+            {
+                Code = (x.x_bm ?? string.Empty).Trim(),
+                Name = (x.x_mc ?? string.Empty).Trim(),
+                Spec = (x.x_ggxh ?? string.Empty).Trim(),
+                Lx = x.x_lx
+            })
+            .ToListAsync();
+
+        var cabinetNames = rows
+            .Where(x => x.Code.Length == 4 && x.Code != "9999")
+            .GroupBy(x => x.Code)
+            .ToDictionary(g => g.Key, g => string.IsNullOrWhiteSpace(g.First().Name) ? g.Key : g.First().Name);
+
+        return rows
+            .Where(x => x.Lx == 11
+                        && x.Code.Length == 12
+                        && x.Code.Substring(4, 4) == "0001"
+                        && codeSet.Contains(x.Code))
+            .Select(x => new WzdhComponentMatch(
+                x.Code,
+                x.Code[..4],
+                cabinetNames.TryGetValue(x.Code[..4], out var cabName) ? cabName : x.Code[..4],
+                x.Name,
+                x.Spec))
+            .OrderBy(x => x.Code, StringComparer.Ordinal)
+            .ToList();
+    }
+
     /// <summary>
     /// C# 版 F_CleanString：转小写 → 删除不可见字符 → 全角转半角 → 去掉括号内容 → 只保留字母/数字/中文/单位符号。
     /// 用于生成型号规格的标准化指纹字符串，便于与历史报价比对。
@@ -1562,25 +1901,29 @@ WHERE LTRIM(RTRIM(fabh)) = {fabh}
         return (value ?? string.Empty).Trim();
     }
 
-    [HttpPost]
+﻿    [HttpPost]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Edit(QuotationEditViewModel model)
     {
         ModelState.Remove(nameof(QuotationEditViewModel.CreatedAt));
+        var loginUser = HttpContext.Session.GetLoginUser();
+        var userName = (loginUser?.UserName ?? string.Empty).Trim();
 
-        if (!ModelState.IsValid)
+        async Task<IActionResult> ReturnEditViewAsync()
         {
             ViewData["Title"] = "编辑报价单";
             ViewData["BreadcrumbTitle"] = "编辑报价单";
+            await PopulateRenameFabhFlagsAsync(model, userName);
             return View(model);
         }
+
+        if (!ModelState.IsValid)
+            return await ReturnEditViewAsync();
 
         if (string.IsNullOrWhiteSpace(model.CustomerName) || string.IsNullOrWhiteSpace(model.CustomerAlias))
         {
             ModelState.AddModelError(string.Empty, "请先通过关键字搜索并选择客户");
-            ViewData["Title"] = "编辑报价单";
-            ViewData["BreadcrumbTitle"] = "编辑报价单";
-            return View(model);
+            return await ReturnEditViewAsync();
         }
 
         var before = await _quotationService.GetByQuotationNoAsync(model.QuotationNo);
@@ -1590,17 +1933,47 @@ WHERE LTRIM(RTRIM(fabh)) = {fabh}
             return RedirectToAction(nameof(Index));
         }
 
-        var (success, message) = await _quotationService.UpdateAsync(ToEditDto(model, before));
+        var (success, message) = await _quotationService.UpdateAsync(ToEditDto(model, before), userName);
         if (!success)
         {
             ModelState.AddModelError(string.Empty, message);
-            ViewData["Title"] = "编辑报价单";
-            ViewData["BreadcrumbTitle"] = "编辑报价单";
-            return View(model);
+            return await ReturnEditViewAsync();
         }
 
         TempData["SuccessMessage"] = message;
         return RedirectToAction(nameof(Index));
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> RenameQuotationNo(string id, string newQuotationNo)
+    {
+        var loginUser = HttpContext.Session.GetLoginUser();
+        var userName = (loginUser?.UserName ?? string.Empty).Trim();
+        var oldFabh = (id ?? string.Empty).Trim();
+        var newFabh = (newQuotationNo ?? string.Empty).Trim();
+        var before = await _quotationService.GetByQuotationNoAsync(oldFabh);
+
+        var result = await _quotationService.RenameFabhAsync(oldFabh, newFabh, userName);
+
+        await WriteQuotationAuditAsync(
+            "RenameFabh",
+            oldFabh,
+            result.Success,
+            result.Success ? null : result.Message,
+            before,
+            result.NewFabh,
+            result.AffectedRows,
+            newFabh);
+
+        if (!result.Success)
+        {
+            TempData["ErrorMessage"] = result.Message;
+            return RedirectToAction(nameof(Edit), new { id = oldFabh });
+        }
+
+        TempData["SuccessMessage"] = $"{result.Message}：{oldFabh} → {result.NewFabh}。请更新书签或收藏链接。";
+        return RedirectToAction(nameof(Edit), new { id = result.NewFabh });
     }
 
     [HttpPost]
@@ -2120,7 +2493,7 @@ WHERE LTRIM(RTRIM(fabh)) = {fabh}
         };
     }
 
-    private async Task<QuotationEditViewModel> ToEditModelAsync(QuotationDto dto)
+    private async Task<QuotationEditViewModel> ToEditModelAsync(QuotationDto dto, string userName)
     {
         var model = new QuotationEditViewModel
         {
@@ -2155,8 +2528,60 @@ WHERE LTRIM(RTRIM(fabh)) = {fabh}
             }
         }
 
+        await PopulateRenameFabhFlagsAsync(model, userName);
         return model;
     }
+
+﻿    private async Task PopulateRenameFabhFlagsAsync(QuotationEditViewModel model, string userName)
+    {
+        var (canRename, message) = await _quotationService.CanRenameFabhAsync(model.QuotationNo, userName);
+        model.CanRenameFabh = canRename;
+        model.RenameFabhBlockedReason = canRename ? null : message;
+    }
+
+    private async Task WriteQuotationAuditAsync(
+        string actionType,
+        string entityId,
+        bool success,
+        string? errorMessage,
+        QuotationDto? before,
+        string? newFabh = null,
+        IReadOnlyDictionary<string, int>? affectedRows = null,
+        string? attemptedNewFabh = null)
+    {
+        var loginUser = HttpContext.Session.GetLoginUser();
+        object? beforePayload = before == null
+            ? null
+            : new
+            {
+                fabh = before.QuotationNo,
+                quotationName = before.QuotationName,
+                dqzt = before.CurrentStatus,
+                fasj = before.CreatedAt,
+                attemptNewFabh = attemptedNewFabh
+            };
+        object? afterPayload = success && !string.IsNullOrWhiteSpace(newFabh)
+            ? new { fabh = newFabh, affectedRows }
+            : null;
+
+        await _auditLogService.WriteAsync(new AuditLogEntry
+        {
+            ActionType = actionType,
+            Module = "Quotation",
+            EntityName = "BJFAT",
+            EntityId = entityId.Trim(),
+            UserName = loginUser?.UserName ?? string.Empty,
+            DisplayName = loginUser?.DisplayName,
+            RoleName = loginUser?.RoleName,
+            ClientIp = HttpContext.Connection.RemoteIpAddress?.ToString(),
+            UserAgent = Request.Headers.UserAgent.ToString(),
+            IsSuccess = success,
+            ErrorMessage = errorMessage,
+            BeforeData = beforePayload == null ? null : JsonSerializer.Serialize(beforePayload),
+            AfterData = afterPayload == null ? null : JsonSerializer.Serialize(afterPayload)
+        });
+    }
+
 }
 
 public class QuotationListViewModel
@@ -2226,6 +2651,10 @@ public class QuotationEditViewModel
 
     [Display(Name = "当前状态")]
     public int CurrentStatus { get; set; }
+
+    public bool CanRenameFabh { get; set; }
+
+    public string? RenameFabhBlockedReason { get; set; }
 }
 
 public static class PriceSection

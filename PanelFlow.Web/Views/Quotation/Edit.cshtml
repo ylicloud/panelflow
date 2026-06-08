@@ -1,4 +1,4 @@
-@model PanelFlow.Web.Controllers.QuotationEditViewModel
+﻿@model PanelFlow.Web.Controllers.QuotationEditViewModel
 @{
     ViewData["Title"] = "编辑报价单";
 }
@@ -10,6 +10,21 @@
     </a>
 </div>
 
+@if (TempData["SuccessMessage"] != null)
+{
+    <div class="alert alert-success py-2 small alert-dismissible fade show">
+        @TempData["SuccessMessage"]
+        <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="alert"></button>
+    </div>
+}
+@if (TempData["ErrorMessage"] != null)
+{
+    <div class="alert alert-danger py-2 small alert-dismissible fade show">
+        @TempData["ErrorMessage"]
+        <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="alert"></button>
+    </div>
+}
+
 <div class="oa-card">
     <form asp-action="Edit" method="post">
         @Html.AntiForgeryToken()
@@ -20,6 +35,19 @@
             <div class="col-md-4">
                 <label class="form-label">报价单编号</label>
                 <input class="form-control form-control-sm" value="@Model.QuotationNo" readonly />
+                @if (Model.CanRenameFabh)
+                {
+                    <div class="mt-1">
+                        <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none"
+                                data-bs-toggle="modal" data-bs-target="#renameFabhModal">
+                            编号录入有误？申请修改
+                        </button>
+                    </div>
+                }
+                else if (!string.IsNullOrWhiteSpace(Model.RenameFabhBlockedReason))
+                {
+                    <div class="small text-muted mt-1">@Model.RenameFabhBlockedReason</div>
+                }
             </div>
             <div class="col-md-4">
                 <label asp-for="QuotationName" class="form-label"></label>
@@ -69,81 +97,49 @@
     </form>
 </div>
 
+@if (Model.CanRenameFabh)
+{
+    <div class="modal fade" id="renameFabhModal" tabindex="-1" aria-labelledby="renameFabhModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form asp-action="RenameQuotationNo" method="post" id="renameFabhForm">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="id" value="@Model.QuotationNo" />
+                    <div class="modal-header">
+                        <h6 class="modal-title" id="renameFabhModalLabel">修改方案编号</h6>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="small text-muted mb-3">
+                            仅用于创建时编号录错。改号后 BJB 等关联表将同步更新，且无法在本页撤销。
+                        </p>
+                        <div class="mb-3">
+                            <label class="form-label">原方案编号</label>
+                            <input class="form-control form-control-sm" value="@Model.QuotationNo" readonly />
+                        </div>
+                        <div class="mb-0">
+                            <label class="form-label" for="newQuotationNo">新方案编号</label>
+                            <input type="text" class="form-control form-control-sm" id="newQuotationNo"
+                                   name="newQuotationNo" maxlength="20" required
+                                   placeholder="请输入新的方案编号" />
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+                        <button type="submit" class="btn btn-sm btn-warning" id="renameFabhSubmitBtn">确认修改编号</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+}
+
 @section Scripts {
     <partial name="_ValidationScriptsPartial" />
+    <script src="~/js/quotation-edit.js" asp-append-version="true"></script>
     <script>
-        (() => {
-            const keywordInput = document.getElementById("customerKeyword");
-            const searchBtn = document.getElementById("customerSearchBtn");
-            const hint = document.getElementById("customerSearchHint");
-            const resultBox = document.getElementById("customerSearchResult");
-            const companyNoInput = document.getElementById("CustomerNo");
-            const companyNameInput = document.getElementById("CustomerName");
-            const aliasInput = document.getElementById("CustomerAlias");
-
-            function setHint(text, isError = false) {
-                hint.textContent = text;
-                hint.className = isError ? "small text-danger mt-1" : "small text-muted mt-1";
-            }
-
-            function clearResult() {
-                resultBox.innerHTML = "";
-                resultBox.classList.add("d-none");
-            }
-
-            function chooseCustomer(item) {
-                companyNoInput.value = item.companyNo || "";
-                companyNameInput.value = item.companyName || "";
-                aliasInput.value = item.alias || "";
-                clearResult();
-                setHint(`已选择：${companyNameInput.value} (${aliasInput.value})`);
-            }
-
-            async function search() {
-                const keyword = (keywordInput.value || "").trim();
-                clearResult();
-                if (!keyword) {
-                    setHint("请输入搜索关键字", true);
-                    return;
-                }
-
-                setHint("搜索中...");
-                try {
-                    const url = `@Url.Action("SearchCustomers", "Quotation")?keyword=${encodeURIComponent(keyword)}`;
-                    const response = await fetch(url, { method: "GET" });
-                    if (!response.ok) {
-                        setHint("搜索失败，请稍后重试", true);
-                        return;
-                    }
-
-                    const list = await response.json();
-                    if (!Array.isArray(list) || list.length === 0) {
-                        setHint("未找到匹配客户", true);
-                        return;
-                    }
-
-                    list.forEach(item => {
-                        const button = document.createElement("button");
-                        button.type = "button";
-                        button.className = "list-group-item list-group-item-action";
-                        button.textContent = `${item.companyName} (${item.alias}) [${item.companyNo}]`;
-                        button.addEventListener("click", () => chooseCustomer(item));
-                        resultBox.appendChild(button);
-                    });
-                    resultBox.classList.remove("d-none");
-                    setHint(`找到 ${list.length} 条，请点击选择`);
-                } catch {
-                    setHint("搜索异常，请稍后重试", true);
-                }
-            }
-
-            searchBtn.addEventListener("click", search);
-            keywordInput.addEventListener("keydown", e => {
-                if (e.key === "Enter") {
-                    e.preventDefault();
-                    search();
-                }
-            });
-        })();
+        window.quotationEditConfig = {
+            searchCustomersUrl: "@Url.Action("SearchCustomers", "Quotation")"
+        };
     </script>
 }

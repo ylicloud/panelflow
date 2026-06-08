@@ -38,3 +38,7 @@ PanelFlow.Web/wwwroot/js/__tests__/
 
 #数据库备份
 DKZX*.bak
+databaseStructure.*
+
+# 个人文件
+Personal/
