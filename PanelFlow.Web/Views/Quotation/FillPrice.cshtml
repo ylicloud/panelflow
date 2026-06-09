@@ -10,6 +10,9 @@
     var fillProgressUrl = Url.Action("GetProjectFillProgress", "Quotation", new { id = Model.QuotationNo }) ?? string.Empty;
     var wzdhSyncStatsUrl = Url.Action("GetComponentWzdhSyncStats", "Quotation", new { id = Model.QuotationNo }) ?? string.Empty;
     var applyPriceByWzdhUrl = Url.Action("ApplyComponentPriceByWzdh", "Quotation", new { id = Model.QuotationNo }) ?? string.Empty;
+    var additionalItemsUrl = Url.Action("GetCabinetAdditionalItems", "Quotation", new { id = Model.QuotationNo }) ?? string.Empty;
+    var attributeItemsUrl = Url.Action("GetAttributeItems", "Quotation", new { id = Model.QuotationNo }) ?? string.Empty;
+    var saveLeafItemsUrl = Url.Action("SaveLeafItemFields", "Quotation") ?? string.Empty;
 }
 <link rel="stylesheet" href="~/lib/handsontable/handsontable.full.min.css" />
 <style>
@@ -22,8 +25,16 @@
     .price-table-pane { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: column; }
     .price-table-pane > .oa-card { display: flex; flex-direction: column; min-height: 0; }
     .price-table-pane #hot-container { flex: 1 1 auto; min-height: 0; }
+    .price-table-pane #hot-container.is-hidden-panel { display: none !important; }
     .price-table-pane #fill-price-action-buttons { flex-shrink: 0; }
     .price-table-pane #cabinet-status-bar { flex-shrink: 0; }
+    /* 视图模式：柜体 / 属性 互斥显示 */
+    .price-workspace.view-mode-cabinet #attr-tree-pane,
+    .price-workspace.view-mode-cabinet #attr-table-pane { display: none !important; }
+    .price-workspace.view-mode-attr #price-tree-pane,
+    .price-workspace.view-mode-attr #cabinet-table-pane { display: none !important; }
+    .price-workspace.view-mode-attr #attr-tree-pane { display: block; }
+    .price-workspace.view-mode-attr #attr-table-pane { display: flex; }
     .tree-node-link { border: 0; background: transparent; padding: 2px 4px; color: inherit; text-align: left; width: 100%; cursor: pointer; border-radius: 4px; }
     .tree-node-link:hover { color: #0d6efd; background-color: #f4f8ff; }
     /* "元件使用柜" 高亮（点击元件后短暂显示），淡蓝底 */
@@ -79,6 +90,36 @@
     /* 行高亮闪烁（B-T6 跳转 + 高亮 2 秒） */
     @@keyframes hot-row-flash { 0% { background-color: #fff3cd; } 100% { background-color: transparent; } }
     .hot-row-flash { animation: hot-row-flash 2s ease-out; }
+    /* ── 视图切换 Toggle ── */
+    .view-toggle-group .btn { min-width: 80px; }
+    /* ── 柜体视图树：折叠 + 二级子节点 ── */
+    .tree-cabinet-row { display: flex; align-items: center; gap: 2px; }
+    .tree-expand-btn { width: 22px; height: 22px; line-height: 1; color: #6c757d; text-decoration: none; }
+    .tree-expand-btn:hover { color: #0d6efd; }
+    .tree-level2-list { list-style: none; padding-left: 0; margin: 2px 0 4px 0; }
+    .tree-level2-list.tree-level2-collapsed { display: none; }
+    .tree-level2-item .tree-node-link { font-size: .82rem; color: #495057; padding: 1px 4px; }
+    .tree-level2-item .tree-node-link:hover { color: #0d6efd; background-color: #f4f8ff; }
+    .tree-level2-item .tree-node-link.has-children { font-weight: 500; }
+    /* ── 附加费用项区块（主面板模式） ── */
+    .additional-items-section { border: 1px solid #dee2e6; border-radius: 6px; padding: 8px; margin-bottom: 8px; background: #fafafa; }
+    .additional-items-section.is-primary-panel { flex: 1 1 auto; min-height: 0; margin-bottom: 0; display: flex; flex-direction: column; border: none; background: transparent; padding: 0; }
+    .additional-items-section.is-primary-panel .section-header { display: none; }
+    .additional-items-section.is-primary-panel .section-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+    .additional-items-section .section-header { display: flex; align-items: center; justify-content: space-between; cursor: pointer; user-select: none; font-size: .875rem; font-weight: 600; color: #495057; padding-bottom: 6px; }
+    .additional-items-section .section-header:hover { color: #0d6efd; }
+    .additional-items-section .section-body { overflow: hidden; }
+    .additional-items-section .section-body.is-collapsed { display: none; }
+    #hot-additional-container { min-height: 120px; width: 100%; }
+    .additional-items-section.is-primary-panel #hot-additional-container { flex: 1 1 auto; min-height: 200px; }
+    /* ── 属性视图树 ── */
+    .attr-tree-node-link { border: 0; background: transparent; padding: 3px 6px; color: inherit; text-align: left; width: 100%; cursor: pointer; border-radius: 4px; font-size: .875rem; }
+    .attr-tree-node-link:hover { color: #0d6efd; background-color: #f4f8ff; }
+    .attr-tree-node-link-selected { color: #fff !important; font-weight: 700; background-color: #0d6efd !important; }
+    .attr-tree-node-link-selected:hover { color: #fff !important; background-color: #0b5ed7 !important; }
+    /* ── 属性视图右侧 ── */
+    #hot-attr-container { flex: 1 1 auto; min-height: 200px; width: 100%; }
+    .ht-placeholder-row td { background-color: #f8f9fa !important; color: #adb5bd !important; }
 </style>
 
 <div class="oa-card mb-2">
@@ -87,6 +128,14 @@
             <button id="toggle-tree-btn" type="button" class="btn btn-sm btn-outline-secondary">
                 <i class="bi bi-layout-sidebar-inset me-1"></i>隐藏目录树
             </button>
+            <div class="btn-group btn-group-sm view-toggle-group" role="group" aria-label="视图切换">
+                <button id="view-cabinet-btn" type="button" class="btn btn-primary" title="按控制柜查看">
+                    <i class="bi bi-grid-1x2 me-1"></i>柜体视图
+                </button>
+                <button id="view-attr-btn" type="button" class="btn btn-outline-primary" title="按属性跨柜批量填写">
+                    <i class="bi bi-table me-1"></i>属性视图
+                </button>
+            </div>
             <span class="small text-muted">报价单：<span class="fw-semibold text-dark">@Model.QuotationNo</span></span>
             <span id="unsaved-badge" class="unsaved-badge"><i class="bi bi-exclamation-circle me-1"></i>未保存</span>
         </div>
@@ -128,27 +177,17 @@
 </div>
 
 <div id="page-info-bar" class="alert alert-info py-2 px-3 small mb-2">
-    提示：点击左侧控制柜节点可加载该柜元件；点击根节点可查看项目元件汇总。
+    提示：柜体视图 — 点击控制柜填写附加费用项，点击「器件」填写元件明细；属性视图 — 按属性跨柜批量填写；点击根节点可查看项目元件汇总。
 </div>
 
-<div class="price-workspace">
+<div class="price-workspace view-mode-cabinet" id="price-workspace">
+    @* ══ 柜体视图：左侧树 ══ *@
     <div id="price-tree-pane" class="price-tree-pane">
         <div class="oa-card h-100 me-2 d-flex flex-column">
             <div class="d-flex justify-content-between align-items-center mb-2">
                 <span class="small text-muted">目录树</span>
-                @if (Model.CanEdit)
-                {
-                    <span class="d-flex gap-1">
-                        <button id="add-cabinet-btn" type="button" class="btn btn-sm btn-outline-success" title="新增控制柜">
-                            <i class="bi bi-plus-lg"></i>
-                        </button>
-                        <button id="delete-cabinet-btn" type="button" class="btn btn-sm btn-outline-danger" title="删除控制柜">
-                            <i class="bi bi-trash"></i>
-                        </button>
-                    </span>
-                }
             </div>
-            <ul class="list-unstyled mb-0 flex-grow-1">
+            <ul class="list-unstyled mb-0 flex-grow-1 overflow-auto">
                 <li class="fw-semibold mb-2">
                     <button id="tree-root-node" type="button" class="tree-node-link">
                         <i class="bi bi-diagram-3 me-1 text-primary"></i>
@@ -164,11 +203,59 @@
                     {
                         @foreach (var node in Model.TreeNodes)
                         {
-                            <li class="ms-4 mb-1">
-                                <button type="button" class="tree-node-link" data-unit-no="@node.Code">
-                                    <i class="bi bi-dot"></i>@node.Name
-                                    <span class="text-muted small ms-1">(@node.Code)</span>
-                                </button>
+                            <li class="ms-3 mb-1" data-node-type="@node.NodeType">
+                                @if (node.NodeType == "leaf")
+                                {
+                                    <button type="button" class="tree-node-link" data-unit-no="@node.Code" data-node-type="leaf">
+                                        <i class="bi bi-tag me-1 text-warning"></i>@node.Name
+                                        <span class="text-muted small ms-1">(@node.Code)</span>
+                                    </button>
+                                }
+                                else
+                                {
+                                    <div class="tree-cabinet-row">
+                                        @if (node.Level2Children.Count > 0)
+                                        {
+                                            <button type="button" class="tree-expand-btn btn btn-link btn-sm p-0 flex-shrink-0"
+                                                    aria-expanded="false" title="展开/折叠子节点">
+                                                <i class="bi bi-chevron-right"></i>
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <span class="tree-expand-btn flex-shrink-0" style="width:22px;"></span>
+                                        }
+                                        <button type="button" class="tree-node-link flex-grow-1" data-unit-no="@node.Code" data-node-type="cabinet">
+                                            <i class="bi bi-dot"></i>@node.Name
+                                            <span class="text-muted small ms-1">(@node.Code)</span>
+                                        </button>
+                                    </div>
+                                    @if (node.Level2Children.Count > 0)
+                                    {
+                                        <ul class="tree-level2-list ms-3 tree-level2-collapsed">
+                                            @foreach (var l2 in node.Level2Children)
+                                            {
+                                                <li class="tree-level2-item">
+                                                    <button type="button"
+                                                            class="tree-node-link @(l2.HasLevel3Children ? "has-children" : "")"
+                                                            data-level2-code="@l2.Code"
+                                                            data-parent-code="@node.Code"
+                                                            data-has-children="@l2.HasLevel3Children.ToString().ToLower()">
+                                                        @if (l2.HasLevel3Children)
+                                                        {
+                                                            <i class="bi bi-list-ul me-1 text-info"></i>
+                                                        }
+                                                        else
+                                                        {
+                                                            <i class="bi bi-dash me-1 text-muted"></i>
+                                                        }
+                                                        @l2.Name
+                                                    </button>
+                                                </li>
+                                            }
+                                        </ul>
+                                    }
+                                }
                             </li>
                         }
                     }
@@ -176,10 +263,37 @@
             </ul>
         </div>
     </div>
+
+    @* ══ 属性视图：左侧树 ══ *@
+    <div id="attr-tree-pane" class="price-tree-pane">
+        <div class="oa-card h-100 me-2 d-flex flex-column">
+            <div class="mb-2 small text-muted">属性目录</div>
+            <ul class="list-unstyled mb-0 flex-grow-1 overflow-auto">
+                @foreach (var attr in Model.AttrNodes)
+                {
+                    <li class="mb-1">
+                        <button type="button" class="attr-tree-node-link"
+                                data-xlx="@attr.Xlx" data-attr-name="@attr.Name" data-attr-count="@attr.Count">
+                            <i class="bi bi-layers me-1 text-secondary"></i>@attr.Name
+                            <span class="text-muted small ms-1">(@attr.Count)</span>
+                        </button>
+                    </li>
+                }
+                <li class="mb-1">
+                    <button type="button" class="attr-tree-node-link" data-xlx="0" data-attr-name="其他费用项" data-attr-count="">
+                        <i class="bi bi-tag me-1 text-warning"></i>其他费用项
+                    </button>
+                </li>
+            </ul>
+        </div>
+    </div>
+
     <div id="price-splitter" class="price-splitter" aria-label="拖动调整左右宽度"></div>
-    <div class="price-table-pane">
-        <div class="oa-card h-100 ms-2">
-            <div id="cabinet-status-bar" class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2 small">
+
+    @* ══ 柜体视图：右侧内容区 ══ *@
+    <div class="price-table-pane" id="cabinet-table-pane">
+        <div class="oa-card h-100 ms-2 d-flex flex-column">
+            <div id="cabinet-status-bar" class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2 small flex-shrink-0">
                 <div>
                     <i class="bi bi-box-seam me-1 text-primary"></i>
                     <span class="text-muted">当前节点：</span>
@@ -190,8 +304,33 @@
                     <span id="current-node-total" class="fw-bold text-primary">¥0.00</span>
                 </div>
             </div>
+
+            @* 附加费用项（Level 2 叶节点） *@
+            <div id="additional-items-section" class="additional-items-section d-none flex-shrink-0">
+                <div class="section-header" id="additional-items-toggle">
+                    <span><i class="bi bi-card-list me-1 text-secondary"></i>附加费用项
+                        <span id="additional-items-count" class="text-muted small ms-1"></span>
+                    </span>
+                    <i class="bi bi-chevron-down" id="additional-items-chevron"></i>
+                </div>
+                <div class="section-body" id="additional-items-body">
+                    <div id="hot-additional-container"
+                         class="border rounded mt-1"
+                         data-additional-url="@additionalItemsUrl"
+                         data-save-leaf-url="@saveLeafItemsUrl"
+                         data-quotation-no="@Model.QuotationNo"
+                         data-license-key="53ea8-c2678-49b80-cb40f-4dad4">
+                    </div>
+                    <div class="small text-muted mt-1">
+                        <i class="bi bi-info-circle me-1"></i>价格修改自动写入数据库，无需手动保存
+                    </div>
+                </div>
+            </div>
+
+            @* Level 3 元件列表（现有区块） *@
             <div id="hot-container"
-                 class="border rounded"
+                 class="border rounded flex-grow-1 is-hidden-panel"
+                 style="min-height: 120px;"
                  data-license-key="53ea8-c2678-49b80-cb40f-4dad4"
                  data-components-url="@cabinetComponentsUrl"
                  data-project-summary-url="@projectComponentSummaryUrl"
@@ -202,27 +341,56 @@
                  data-apply-price-by-wzdh-url="@applyPriceByWzdhUrl"
                  data-quotation-no="@Model.QuotationNo">
             </div>
-            <div id="component-usage-panel" class="alert alert-light border mt-3 d-none">
+            <div id="component-usage-panel" class="alert alert-light border mt-2 d-none flex-shrink-0">
                 <div class="fw-semibold mb-2">使用控制柜</div>
                 <div id="component-usage-title" class="small text-muted mb-2"></div>
                 <ul id="component-usage-list" class="list-unstyled mb-0 small"></ul>
             </div>
-            <div id="fill-price-action-buttons" class="d-flex flex-wrap align-items-center gap-2 mt-3">
+            <div id="fill-price-action-buttons" class="d-flex flex-wrap align-items-center gap-2 mt-2 flex-shrink-0">
                 <form id="price-save-form" class="d-none" method="post">
                     @Html.AntiForgeryToken()
                 </form>
                 @if (Model.CanEdit)
                 {
-                    <button id="add-row-btn" type="button" class="btn btn-sm btn-outline-success">
-                        <i class="bi bi-plus-lg me-1"></i>新增行
-                    </button>
-                    <button id="delete-row-btn" type="button" class="btn btn-sm btn-outline-danger">
-                        <i class="bi bi-trash me-1"></i>删除行
-                    </button>
-                    <span class="small text-muted ms-2">
-                        <i class="bi bi-info-circle me-1"></i>价格修改自动写入数据库，无需手动保存
+                    <span class="small text-muted">
+                        <i class="bi bi-info-circle me-1"></i>价格修改自动写入数据库，无需手动保存（不允许增删行）
                     </span>
                 }
+            </div>
+        </div>
+    </div>
+
+    @* ══ 属性视图：右侧内容区 ══ *@
+    <div class="price-table-pane" id="attr-table-pane">
+        <div class="oa-card h-100 ms-2 d-flex flex-column">
+            <div id="attr-status-bar" class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2 small flex-shrink-0">
+                <div>
+                    <i class="bi bi-layers me-1 text-secondary"></i>
+                    <span class="text-muted">当前属性：</span>
+                    <span id="attr-node-label" class="fw-semibold text-dark">尚未选择</span>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="text-muted">合计金额：</span>
+                    <span id="attr-node-total" class="fw-bold text-secondary">¥0.00</span>
+                    @if (Model.CanEdit)
+                    {
+                        <button id="batch-fill-btn" type="button" class="btn btn-sm btn-outline-success d-none"
+                                title="以首个有规格且单价>0的行为模板，批量填充所有空行">
+                            <i class="bi bi-arrow-down-circle me-1"></i>批量填写
+                        </button>
+                    }
+                </div>
+            </div>
+            <div id="hot-attr-container"
+                 class="border rounded flex-grow-1"
+                 style="min-height: 120px;"
+                 data-attribute-url="@attributeItemsUrl"
+                 data-save-leaf-url="@saveLeafItemsUrl"
+                 data-quotation-no="@Model.QuotationNo"
+                 data-license-key="53ea8-c2678-49b80-cb40f-4dad4">
+            </div>
+            <div class="small text-muted mt-2 flex-shrink-0">
+                <i class="bi bi-info-circle me-1"></i>价格修改自动写入数据库，无需手动保存
             </div>
         </div>
     </div>

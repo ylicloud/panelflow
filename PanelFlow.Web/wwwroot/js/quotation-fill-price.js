@@ -59,6 +59,10 @@
     let summaryMode = false;
     let projectSummaryReadOnly = false;
     let cabinetViewActive = false;
+    /** 柜体视图右侧展示附加费用项（Level 2）而非元件明细 */
+    let additionalViewActive = false;
+    let hotAdditional = null;
+    let currentAdditionalData = [];
     /** 根节点汇总视图模式（Req 15.1-15.6：只读、按 x_mc/x_ggxh/x_dj 分组、底部合计行） */
     let rootSummaryMode = false;
     /** 柜体视图且在单价后插入参考价列 */
@@ -560,6 +564,13 @@
                 if (!Array.isArray(row)) continue;
                 total += parseDecimalOrZero(row[4]);
             }
+        } else if (additionalViewActive) {
+            currentAdditionalData.forEach((row) => {
+                const price = parseFloat(row.x_bj_dj) || 0;
+                const qty = parseFloat(row.x_sl) || 0;
+                const fdds = parseFloat(row.x_fdds) || 0;
+                total += price * (1 + fdds / 100) * qty;
+            });
         } else if (cabinetViewActive) {
             const cAmt = colAmount();
             for (let r = 0; r < data.length; r += 1) {
@@ -879,6 +890,7 @@
         rootSummaryMode = false;
         projectSummaryReadOnly = false;
         cabinetViewActive = false;
+        additionalViewActive = false;
         refPriceColumnVisible = false;
         currentCabinetUnitCode = "";
         summaryDirty = false;
@@ -1184,7 +1196,12 @@
             selectedCabinetCode = target;
             setSelectedTreeNode(target);
             currentCabinetUnitCode = target;
+            additionalViewActive = false;
             cabinetViewActive = true;
+            document.getElementById("additional-items-section")?.classList.remove("is-primary-panel");
+            document.getElementById("additional-items-section")?.classList.add("d-none");
+            document.getElementById("hot-container")?.classList.remove("is-hidden-panel");
+            document.getElementById("fill-price-action-buttons")?.style.removeProperty("display");
             // 当 referencePriceUrl 可用时，始终加载参考价格列（Req 6.1, 6.2）
             const wantRef = referencePriceUrl
                 ? true
@@ -1219,9 +1236,13 @@
         }
         try {
             cabinetViewActive = false;
+            additionalViewActive = false;
             currentCabinetUnitCode = "";
             refPriceColumnVisible = false;
             rootSummaryMode = true;
+            document.getElementById("additional-items-section")?.classList.remove("is-primary-panel");
+            document.getElementById("additional-items-section")?.classList.add("d-none");
+            document.getElementById("hot-container")?.classList.remove("is-hidden-panel");
             applyHotColumnLayout();
             hideUsagePanel();
             setMessage("正在加载项目全部控制柜元件汇总...", false);
@@ -1606,19 +1627,6 @@
                 const message = error instanceof Error ? error.message : "切换参考价格失败";
                 setMessage(message, true);
             }
-        });
-    }
-
-    if (treeChildrenContainer) {
-        treeChildrenContainer.addEventListener("click", (event) => {
-            const trigger = event.target.closest("[data-unit-no]");
-            if (!trigger) {
-                return;
-            }
-            const unitNo = trigger.getAttribute("data-unit-no") || "";
-            selectedCabinetCode = unitNo;
-            setSelectedTreeNode(unitNo);
-            loadCabinetComponents(unitNo);
         });
     }
 
@@ -2470,28 +2478,559 @@
     // 初始化拖拽排序 (Req 14.1~14.5)
     initTreeDragAndDrop();
 
-    // 新增控制柜按钮
-    if (addCabinetBtn) {
-        addCabinetBtn.addEventListener("click", () => addCabinet());
-    }
-
-    // 删除控制柜按钮
-    if (deleteCabinetBtn) {
-        deleteCabinetBtn.addEventListener("click", () => deleteCabinet());
-    }
-
-    // 新增元件行按钮
-    if (addRowBtn) {
-        addRowBtn.addEventListener("click", () => addElementRow());
-    }
-
-    // 删除元件行按钮
-    if (deleteRowBtn) {
-        deleteRowBtn.addEventListener("click", () => deleteElementRows());
-    }
-
     applyButtonStates();
     // B-T5: 页面加载完成后立即取一次进度（无论用户是否点击柜节点）
     updateProgressVisibility();
     refreshProgress();
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // ██  一、二级叶节点填价扩展
+    // ═══════════════════════════════════════════════════════════════════════
+
+    // ── DOM 引用 ──
+    const additionalItemsSection = document.getElementById("additional-items-section");
+    const additionalItemsToggle = document.getElementById("additional-items-toggle");
+    const additionalItemsBody = document.getElementById("additional-items-body");
+    const additionalItemsChevron = document.getElementById("additional-items-chevron");
+    const additionalItemsCount = document.getElementById("additional-items-count");
+    const hotAdditionalContainer = document.getElementById("hot-additional-container");
+    const hotAttrContainer = document.getElementById("hot-attr-container");
+    const batchFillBtn = document.getElementById("batch-fill-btn");
+    const attrNodeLabelEl = document.getElementById("attr-node-label");
+    const attrNodeTotalEl = document.getElementById("attr-node-total");
+    const viewCabinetBtn = document.getElementById("view-cabinet-btn");
+    const viewAttrBtn = document.getElementById("view-attr-btn");
+    const cabinetTablePane = document.getElementById("cabinet-table-pane");
+    const attrTablePane = document.getElementById("attr-table-pane");
+    const attrTreePane = document.getElementById("attr-tree-pane");
+    const cabinetTreePane = document.getElementById("price-tree-pane");
+    const priceWorkspace = document.getElementById("price-workspace");
+    const hotContainerEl = document.getElementById("hot-container");
+
+    const calcHandsontableHeight = (rowCount, minRows = 4, maxRows = 25) => {
+        const header = 28;
+        const rowH = 24;
+        const rows = Math.max(rowCount, minRows);
+        return Math.min(header + rows * rowH, header + maxRows * rowH);
+    };
+
+    const calcAttrTableHeight = () => {
+        if (!hotAttrContainer) return 400;
+        const pane = attrTablePane?.querySelector(".oa-card");
+        const bar = document.getElementById("attr-status-bar");
+        const footerHint = hotAttrContainer.nextElementSibling;
+        const paneH = pane?.clientHeight || 500;
+        const barH = bar?.offsetHeight || 40;
+        const footH = footerHint?.offsetHeight || 24;
+        return Math.max(200, paneH - barH - footH - 24);
+    };
+
+    const additionalItemsUrl = (hotAdditionalContainer?.dataset.additionalUrl || "").trim();
+    const attributeItemsUrl = (hotAttrContainer?.dataset.attributeUrl || "").trim();
+
+    /** id 在路径中时（/Quotation/Action/FABH001）须用 ? 连接首个查询参数，不能用 & */
+    const appendQueryParam = (baseUrl, key, value) => {
+        const base = (baseUrl || "").trim();
+        if (!base) return "";
+        const connector = base.includes("?") ? "&" : "?";
+        return `${base}${connector}${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`;
+    };
+    const saveLeafItemsUrl = (hotAdditionalContainer?.dataset.saveLeafUrl || "").trim();
+    const leafQuotationNo = (hotAdditionalContainer?.dataset.quotationNo || "").trim();
+    const leafLicenseKey = (hotAdditionalContainer?.dataset.licenseKey || "").trim();
+    const attrLicenseKey = (hotAttrContainer?.dataset.licenseKey || "").trim();
+
+    // CSRF token helper
+    const getAntiForgeryToken = () => {
+        const form = document.getElementById("price-save-form");
+        if (!form) return "";
+        const input = form.querySelector("input[name='__RequestVerificationToken']");
+        return input ? input.value : "";
+    };
+
+    // ── 附加费用项 Handsontable ──
+    let additionalSaveTimer = 0;
+
+    const showAdditionalPanel = () => {
+        additionalItemsSection?.classList.remove("d-none");
+        additionalItemsSection?.classList.add("is-primary-panel");
+        additionalItemsBody?.classList.remove("is-collapsed");
+        if (additionalItemsChevron) additionalItemsChevron.className = "bi bi-chevron-down";
+        hotContainerEl?.classList.add("is-hidden-panel");
+        componentUsagePanel?.classList.add("d-none");
+        document.getElementById("fill-price-action-buttons")?.style.setProperty("display", "none");
+    };
+
+    const showComponentPanel = () => {
+        additionalItemsSection?.classList.remove("is-primary-panel");
+        additionalItemsSection?.classList.add("d-none");
+        hotContainerEl?.classList.remove("is-hidden-panel");
+        document.getElementById("fill-price-action-buttons")?.style.removeProperty("display");
+    };
+
+    const refreshHotAdditionalLayout = (rowCount) => {
+        if (!hotAdditionalContainer || !hotAdditional) return;
+        const inPrimary = additionalItemsSection?.classList.contains("is-primary-panel");
+        let height;
+        if (inPrimary) {
+            const card = cabinetTablePane?.querySelector(".oa-card");
+            const statusBar = document.getElementById("cabinet-status-bar");
+            const cardH = card?.clientHeight || 500;
+            const barH = statusBar?.offsetHeight || 40;
+            height = Math.max(200, cardH - barH - 20);
+        } else {
+            height = calcHandsontableHeight(rowCount);
+        }
+        hotAdditional.updateSettings({ height });
+        hotAdditional.render();
+    };
+
+    const loadCabinetAdditionalView = async (unitNo, nodeType) => {
+        const target = (unitNo || "").trim();
+        if (!target) return;
+        try {
+            leaveSummaryMode();
+            selectedCabinetCode = target;
+            setSelectedTreeNode(target);
+            currentCabinetUnitCode = target;
+            additionalViewActive = true;
+            cabinetViewActive = false;
+            refPriceColumnVisible = false;
+            applyHotColumnLayout();
+            hideUsagePanel();
+
+            setMessage(`正在加载节点 ${target} 的附加费用项...`, false);
+            showAdditionalPanel();
+            await loadAdditionalItems(target, nodeType);
+
+            const cab = cabinetList.find((c) => c.code === target);
+            const label = cab && cab.name
+                ? `${cab.name}（${target}）`
+                : (nodeType === "leaf" ? `费用项 ${target}` : `控制柜 ${target}`);
+            updateCabinetStatusBar(label);
+            updateProgressVisibility();
+            refreshProgress();
+            setMessage(
+                `已加载 ${target} 附加费用项，共 ${currentAdditionalData.length} 条。`,
+                false
+            );
+            applyButtonStates();
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "读取附加费用项失败";
+            setMessage(message, true);
+        }
+    };
+
+    const ADDITIONAL_COLS = [
+        { data: "x_mc", title: "名称", readOnly: true, width: 80 },
+        { data: "x_ggxh", title: "规格型号", width: 160 },
+        { data: "x_dw", title: "单位", width: 55 },
+        { data: "x_bj_dj", title: "单价", type: "numeric", numericFormat: { pattern: "0.00" }, width: 80 },
+        { data: "x_sl", title: "数量", type: "numeric", numericFormat: { pattern: "0.##" }, width: 55 },
+        {
+            data: "_amount", title: "金额", readOnly: true, width: 90,
+            renderer: (instance, td, row, col, prop, value) => {
+                const rowData = instance.getSourceDataAtRow(row) || {};
+                const price = parseFloat(rowData.x_bj_dj) || 0;
+                const qty = parseFloat(rowData.x_sl) || 0;
+                const fdds = parseFloat(rowData.x_fdds) || 0;
+                const amount = price * (1 + fdds / 100) * qty;
+                td.textContent = "¥" + amount.toFixed(2);
+                td.style.backgroundColor = "#dbeafe";
+                td.style.textAlign = "right";
+                return td;
+            }
+        },
+        { data: "x_fdds", title: "浮动%", type: "numeric", numericFormat: { pattern: "0.##" }, width: 55 },
+        { data: "x_sccj", title: "厂家", width: 100 }
+    ];
+
+    const initHotAdditional = (rowCount = 4) => {
+        if (!hotAdditionalContainer || typeof Handsontable === "undefined") return;
+        if (hotAdditional) { hotAdditional.destroy(); hotAdditional = null; }
+
+        const initialHeight = calcHandsontableHeight(rowCount);
+        hotAdditional = new Handsontable(hotAdditionalContainer, {
+            licenseKey: leafLicenseKey,
+            data: [],
+            columns: ADDITIONAL_COLS,
+            colHeaders: ADDITIONAL_COLS.map(c => c.title),
+            rowHeaders: true,
+            stretchH: "all",
+            width: "100%",
+            height: initialHeight,
+            contextMenu: false,
+            manualRowMove: false,
+            manualColumnResize: true,
+            cells(row, col) {
+                const rowData = this.instance.getSourceDataAtRow(row);
+                if (globalReadOnly) return { readOnly: true };
+                const meta = {};
+                if (col === 3 && rowData) {
+                    const price = parseFloat(rowData.x_bj_dj) || 0;
+                    if (price <= 0) meta.className = "ht-price-empty";
+                }
+                return meta;
+            },
+            afterChange(changes, source) {
+                if (!changes || source === "loadData") return;
+                clearTimeout(additionalSaveTimer);
+                additionalSaveTimer = setTimeout(() => saveAdditionalItems(), 600);
+                updateAdditionalTotal();
+            }
+        });
+    };
+
+    const loadAdditionalItems = async (unitCode, nodeType) => {
+        if (!additionalItemsUrl || !unitCode) return;
+        const url = appendQueryParam(additionalItemsUrl, "unitCode", unitCode);
+        const resp = await fetch(url);
+        const result = await resp.json();
+        if (!result.success) throw new Error(result.message || "加载附加费用项失败");
+        currentAdditionalData = Array.isArray(result.rows) ? result.rows : [];
+
+        if (!hotAdditional) {
+            initHotAdditional(currentAdditionalData.length);
+        }
+        hotAdditional.loadData(currentAdditionalData);
+        requestAnimationFrame(() => refreshHotAdditionalLayout(currentAdditionalData.length));
+
+        if (additionalItemsCount) {
+            additionalItemsCount.textContent = `${currentAdditionalData.length} 项`;
+        }
+        updateAdditionalTotal();
+    };
+
+    const saveAdditionalItems = async () => {
+        if (!saveLeafItemsUrl || !hotAdditional) return;
+        const items = hotAdditional.getSourceData().map(row => ({
+            code: row.x_bm,
+            spec: row.x_ggxh || null,
+            unit: row.x_dw || null,
+            price: parseFloat(row.x_bj_dj) || 0,
+            qty: parseFloat(row.x_sl) || 0,
+            floatRate: parseFloat(row.x_fdds) || 0,
+            vendor: row.x_sccj || null
+        })).filter(r => r.code);
+
+        if (items.length === 0) return;
+        const token = getAntiForgeryToken();
+        try {
+            await fetch(saveLeafItemsUrl, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(token ? { RequestVerificationToken: token } : {})
+                },
+                body: JSON.stringify({ quotationNo: leafQuotationNo, items })
+            });
+            updateAdditionalTotal();
+        } catch (_) { /* 静默失败，下次触发重试 */ }
+    };
+
+    const updateAdditionalTotal = () => {
+        if (hotAdditional) {
+            currentAdditionalData = hotAdditional.getSourceData();
+        }
+        recalcTotalAmount();
+    };
+
+    // 折叠/展开附加费用项区块
+    if (additionalItemsToggle) {
+        additionalItemsToggle.addEventListener("click", () => {
+            const isCollapsed = additionalItemsBody.classList.toggle("is-collapsed");
+            if (additionalItemsChevron) {
+                additionalItemsChevron.className = isCollapsed ? "bi bi-chevron-right" : "bi bi-chevron-down";
+            }
+        });
+    }
+
+    // ── 柜体视图：折叠 + 树节点点击（Level 1 / Level 2）──
+    if (treeChildrenContainer) {
+        treeChildrenContainer.addEventListener("click", async (event) => {
+            const expandBtn = event.target.closest(".tree-expand-btn");
+            if (expandBtn && expandBtn.tagName === "BUTTON") {
+                event.stopPropagation();
+                const li = expandBtn.closest("li");
+                const l2List = li?.querySelector(".tree-level2-list");
+                const expanded = expandBtn.getAttribute("aria-expanded") === "true";
+                const nextExpanded = !expanded;
+                expandBtn.setAttribute("aria-expanded", nextExpanded ? "true" : "false");
+                l2List?.classList.toggle("tree-level2-collapsed", !nextExpanded);
+                const icon = expandBtn.querySelector("i");
+                if (icon) icon.className = nextExpanded ? "bi bi-chevron-down" : "bi bi-chevron-right";
+                return;
+            }
+
+            const l2Btn = event.target.closest("[data-level2-code]");
+            if (l2Btn) {
+                const l2Code = l2Btn.getAttribute("data-level2-code") || "";
+                const parentCode = l2Btn.getAttribute("data-parent-code") || "";
+                const hasChildren = l2Btn.getAttribute("data-has-children") === "true";
+
+                if (hasChildren) {
+                    await loadCabinetComponents(parentCode);
+                } else {
+                    await loadCabinetAdditionalView(parentCode, "cabinet");
+                    if (hotAdditional) {
+                        const rowIdx = hotAdditional.getSourceData()
+                            .findIndex((r) => (r.x_bm || "").trim() === l2Code.trim());
+                        if (rowIdx >= 0) {
+                            hotAdditional.scrollViewportTo({ row: rowIdx });
+                            hotAdditional.selectRows(rowIdx);
+                        }
+                    }
+                }
+                return;
+            }
+
+            const l1Btn = event.target.closest("[data-unit-no]");
+            if (!l1Btn) return;
+
+            const unitNo = l1Btn.getAttribute("data-unit-no") || "";
+            const nodeType = l1Btn.getAttribute("data-node-type") || "cabinet";
+            await loadCabinetAdditionalView(unitNo, nodeType);
+        });
+    }
+
+    // ── 视图切换 ──
+    const switchToCabinetView = () => {
+        priceWorkspace?.classList.remove("view-mode-attr");
+        priceWorkspace?.classList.add("view-mode-cabinet");
+        if (viewCabinetBtn) { viewCabinetBtn.className = "btn btn-sm btn-primary"; }
+        if (viewAttrBtn) { viewAttrBtn.className = "btn btn-sm btn-outline-primary"; }
+    };
+
+    const switchToAttrView = () => {
+        priceWorkspace?.classList.remove("view-mode-cabinet");
+        priceWorkspace?.classList.add("view-mode-attr");
+        if (viewCabinetBtn) { viewCabinetBtn.className = "btn btn-sm btn-outline-primary"; }
+        if (viewAttrBtn) { viewAttrBtn.className = "btn btn-sm btn-primary"; }
+
+        requestAnimationFrame(() => {
+            if (hotAttr) {
+                hotAttr.updateSettings({ height: calcAttrTableHeight() });
+                hotAttr.render();
+            }
+            const selected = attrTreePane?.querySelector(".attr-tree-node-link-selected");
+            const first = attrTreePane?.querySelector(".attr-tree-node-link");
+            if (!selected && first) {
+                first.click();
+            }
+        });
+    };
+
+    if (viewCabinetBtn) viewCabinetBtn.addEventListener("click", switchToCabinetView);
+    if (viewAttrBtn) viewAttrBtn.addEventListener("click", switchToAttrView);
+
+    // ── 属性视图 Handsontable ──
+    let hotAttr = null;
+    let currentAttrData = [];
+    let currentAttrXlx = -1;
+    let attrSaveTimer = 0;
+
+    const ATTR_COLS = [
+        {
+            data: "cabinetName", title: "控制柜", readOnly: true, width: 110,
+            renderer(instance, td, row) {
+                const rowData = instance.getSourceDataAtRow(row) || {};
+                if (rowData.isPlaceholder) {
+                    td.textContent = "（无此项）";
+                    td.className = "ht-placeholder-row";
+                } else {
+                    td.textContent = rowData.cabinetName || rowData.cabinetCode || "";
+                }
+                return td;
+            }
+        },
+        { data: "x_ggxh", title: "规格型号", width: 180 },
+        { data: "x_dw", title: "单位", width: 55 },
+        { data: "x_bj_dj", title: "单价", type: "numeric", numericFormat: { pattern: "0.00" }, width: 85 },
+        { data: "x_sl", title: "数量", type: "numeric", numericFormat: { pattern: "0.##" }, width: 55 },
+        {
+            data: "_amount", title: "金额", readOnly: true, width: 90,
+            renderer: (instance, td, row) => {
+                const rowData = instance.getSourceDataAtRow(row) || {};
+                if (rowData.isPlaceholder) { td.textContent = ""; td.style.backgroundColor = "#f8f9fa"; return td; }
+                const price = parseFloat(rowData.x_bj_dj) || 0;
+                const qty = parseFloat(rowData.x_sl) || 0;
+                const fdds = parseFloat(rowData.x_fdds) || 0;
+                const amount = price * (1 + fdds / 100) * qty;
+                td.textContent = "¥" + amount.toFixed(2);
+                td.style.backgroundColor = "#dbeafe";
+                td.style.textAlign = "right";
+                return td;
+            }
+        },
+        { data: "x_fdds", title: "浮动%", type: "numeric", numericFormat: { pattern: "0.##" }, width: 55 },
+        { data: "x_sccj", title: "厂家", width: 110 }
+    ];
+
+    const initHotAttr = () => {
+        if (!hotAttrContainer || typeof Handsontable === "undefined") return;
+        if (hotAttr) { hotAttr.destroy(); hotAttr = null; }
+
+        hotAttr = new Handsontable(hotAttrContainer, {
+            licenseKey: attrLicenseKey,
+            data: [],
+            columns: ATTR_COLS,
+            colHeaders: ATTR_COLS.map(c => c.title),
+            rowHeaders: true,
+            stretchH: "all",
+            width: "100%",
+            height: calcAttrTableHeight(),
+            contextMenu: false,
+            manualRowMove: false,
+            manualColumnResize: true,
+            cells(row, col) {
+                const rowData = this.instance.getSourceDataAtRow(row);
+                if (globalReadOnly || !rowData || rowData.isPlaceholder || !rowData.x_bm) {
+                    return { readOnly: true, className: "ht-placeholder-row" };
+                }
+                if (col === 3) {
+                    const price = parseFloat(rowData.x_bj_dj) || 0;
+                    if (price <= 0) return { className: "ht-price-empty" };
+                }
+                return {};
+            },
+            afterChange(changes, source) {
+                if (!changes || source === "loadData") return;
+                clearTimeout(attrSaveTimer);
+                attrSaveTimer = setTimeout(() => saveAttrItems(), 600);
+                updateAttrTotal();
+            }
+        });
+    };
+
+    const loadAttributeItems = async (xlx, attrName) => {
+        if (!attributeItemsUrl) return;
+        currentAttrXlx = xlx;
+        const url = appendQueryParam(attributeItemsUrl, "xlx", xlx);
+        try {
+            const resp = await fetch(url);
+            const result = await resp.json();
+            if (!result.success) throw new Error(result.message || "加载属性数据失败");
+            currentAttrData = Array.isArray(result.rows) ? result.rows : [];
+            if (!hotAttr) initHotAttr();
+            hotAttr.loadData(currentAttrData);
+            requestAnimationFrame(() => {
+                hotAttr.updateSettings({ height: calcAttrTableHeight() });
+                hotAttr.render();
+            });
+            if (attrNodeLabelEl) attrNodeLabelEl.textContent = attrName || `属性 ${xlx}`;
+            updateAttrTotal();
+            if (batchFillBtn) batchFillBtn.classList.remove("d-none");
+        } catch (e) {
+            if (attrNodeLabelEl) attrNodeLabelEl.textContent = "加载失败";
+        }
+    };
+
+    const saveAttrItems = async () => {
+        if (!saveLeafItemsUrl || !hotAttr) return;
+        const attrQuotationNo = hotAttrContainer?.dataset.quotationNo || leafQuotationNo;
+        const items = hotAttr.getSourceData()
+            .filter(row => row && !row.isPlaceholder && row.x_bm)
+            .map(row => ({
+                code: row.x_bm,
+                spec: row.x_ggxh || null,
+                unit: row.x_dw || null,
+                price: parseFloat(row.x_bj_dj) || 0,
+                qty: parseFloat(row.x_sl) || 0,
+                floatRate: parseFloat(row.x_fdds) || 0,
+                vendor: row.x_sccj || null
+            }));
+
+        if (items.length === 0) return;
+        const token = getAntiForgeryToken();
+        try {
+            await fetch(saveLeafItemsUrl, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(token ? { RequestVerificationToken: token } : {})
+                },
+                body: JSON.stringify({ quotationNo: attrQuotationNo, items })
+            });
+        } catch (_) { /* 静默失败 */ }
+    };
+
+    const updateAttrTotal = () => {
+        if (!hotAttr || !attrNodeTotalEl) return;
+        let total = 0;
+        hotAttr.getSourceData().forEach(row => {
+            if (!row || row.isPlaceholder) return;
+            const price = parseFloat(row.x_bj_dj) || 0;
+            const qty = parseFloat(row.x_sl) || 0;
+            const fdds = parseFloat(row.x_fdds) || 0;
+            total += price * (1 + fdds / 100) * qty;
+        });
+        attrNodeTotalEl.textContent = "¥" + total.toFixed(2);
+    };
+
+    // ── 批量填写按钮 ──
+    if (batchFillBtn) {
+        batchFillBtn.addEventListener("click", () => {
+            if (!hotAttr) return;
+            const sourceData = hotAttr.getSourceData();
+
+            // 找到首个有规格且单价>0的非占位行作为模板
+            const template = sourceData.find(row =>
+                row && !row.isPlaceholder && row.x_bm
+                && (row.x_ggxh || "").trim() !== ""
+                && (parseFloat(row.x_bj_dj) || 0) > 0
+            );
+            if (!template) {
+                alert("未找到可用模板行（需有规格型号且单价 > 0）");
+                return;
+            }
+
+            let filledCount = 0;
+            const changes = [];
+            sourceData.forEach((row, rowIdx) => {
+                if (!row || row.isPlaceholder || !row.x_bm) return;
+                const specEmpty = !(row.x_ggxh || "").trim();
+                const priceZero = (parseFloat(row.x_bj_dj) || 0) === 0;
+                if (specEmpty || priceZero) {
+                    if (specEmpty) changes.push([rowIdx, "x_ggxh", template.x_ggxh]);
+                    if (priceZero) changes.push([rowIdx, "x_bj_dj", template.x_bj_dj]);
+                    if (!(row.x_dw || "").trim()) changes.push([rowIdx, "x_dw", template.x_dw]);
+                    if (!(row.x_sccj || "").trim()) changes.push([rowIdx, "x_sccj", template.x_sccj]);
+                    filledCount++;
+                }
+            });
+
+            if (changes.length === 0) {
+                alert("所有行均已填写，无需批量填充。");
+                return;
+            }
+
+            hotAttr.setDataAtRowProp(changes, "batchFill");
+            clearTimeout(attrSaveTimer);
+            attrSaveTimer = setTimeout(() => saveAttrItems(), 600);
+            updateAttrTotal();
+            if (infoBarEl) {
+                infoBarEl.textContent = `已批量填写 ${filledCount} 行`;
+                infoBarEl.className = "alert alert-success py-2 px-3 small mb-2";
+            }
+        });
+    }
+
+    // ── 属性视图树节点点击 ──
+    const attrTreeContainer = attrTreePane?.querySelector("ul");
+    if (attrTreeContainer) {
+        attrTreeContainer.addEventListener("click", (event) => {
+            const btn = event.target.closest(".attr-tree-node-link");
+            if (!btn) return;
+
+            // 更新选中样式
+            attrTreeContainer.querySelectorAll(".attr-tree-node-link").forEach(b =>
+                b.classList.remove("attr-tree-node-link-selected"));
+            btn.classList.add("attr-tree-node-link-selected");
+
+            const xlx = parseInt(btn.dataset.xlx ?? "-1", 10);
+            const attrName = btn.dataset.attrName || "";
+            loadAttributeItems(xlx, attrName);
+        });
+    }
+
 })();
