@@ -20,11 +20,13 @@
     const treeRootNode = document.getElementById("tree-root-node");
     const saveSummaryBtn = document.getElementById("save-summary-btn"); // 已移除，保留 null 兼容旧代码
     const saveForm = document.getElementById("price-save-form");
-    const fillPriceActionButtons = document.getElementById("fill-price-action-buttons");
     const showRefPriceCb = document.getElementById("show-ref-price-cb");
-    const componentUsagePanel = document.getElementById("component-usage-panel");
+    const componentUsageDrawerEl = document.getElementById("component-usage-drawer");
     const componentUsageTitle = document.getElementById("component-usage-title");
     const componentUsageList = document.getElementById("component-usage-list");
+    const componentUsageSummaryEl = document.getElementById("component-usage-summary");
+    const componentUsageCloseEl = document.getElementById("component-usage-close");
+    const DEFAULT_INFO_MESSAGE = "提示：点击左侧控制柜节点可加载该柜元件；点击根节点可查看项目元件汇总。";
     const addCabinetBtn = document.getElementById("add-cabinet-btn");
     const deleteCabinetBtn = document.getElementById("delete-cabinet-btn");
     const addRowBtn = document.getElementById("add-row-btn");
@@ -86,6 +88,7 @@
     const colVendor = () => (isRefColumnMode() ? 9 : 8);
     const colQty = () => (isRefColumnMode() ? 6 : 5);
     const colPrice = () => 4;
+    const colSeq = () => 0;
 
     const editableColsForMode = () => {
         if (globalReadOnly) {
@@ -110,9 +113,14 @@
         if (!infoBarEl) {
             return;
         }
-        infoBarEl.textContent = message || "";
-        infoBarEl.classList.remove("alert-info", "alert-danger", "alert-success");
-        infoBarEl.classList.add(isError ? "alert-danger" : "alert-success");
+        infoBarEl.classList.remove("oa-fill-message--info", "oa-fill-message--error", "oa-fill-message--success");
+        if (!message) {
+            infoBarEl.textContent = DEFAULT_INFO_MESSAGE;
+            infoBarEl.classList.add("oa-fill-message--info");
+            return;
+        }
+        infoBarEl.textContent = message;
+        infoBarEl.classList.add(isError ? "oa-fill-message--error" : "oa-fill-message--success");
     };
 
     /** 标记为未保存状态 */
@@ -478,18 +486,17 @@
     };
 
     const applyButtonStates = () => {
-        if (fillPriceActionButtons) {
-            fillPriceActionButtons.classList.toggle("d-none", projectSummaryReadOnly || globalReadOnly);
-        }
-        if (saveSummaryBtn) {
-            saveSummaryBtn.disabled = globalReadOnly || projectSummaryReadOnly || !(summaryMode && summaryDirty);
-        }
-        // 新增行/删除行按钮仅在柜体视图激活时可用
+        const hideRowActions = projectSummaryReadOnly || globalReadOnly;
         if (addRowBtn) {
+            addRowBtn.classList.toggle("d-none", hideRowActions);
             addRowBtn.disabled = globalReadOnly || !cabinetViewActive;
         }
         if (deleteRowBtn) {
+            deleteRowBtn.classList.toggle("d-none", hideRowActions);
             deleteRowBtn.disabled = globalReadOnly || !cabinetViewActive;
+        }
+        if (saveSummaryBtn) {
+            saveSummaryBtn.disabled = globalReadOnly || projectSummaryReadOnly || !(summaryMode && summaryDirty);
         }
         syncRefPriceCheckboxUi();
     };
@@ -636,24 +643,58 @@
         recalcTotalAmount();
     };
 
-    const hideUsagePanel = () => {
-        clearTreeHighlights();
-        if (!componentUsagePanel || !componentUsageTitle || !componentUsageList) {
-            return;
+    const usageDrawer = {
+        close: () => {
+            clearTreeHighlights();
+            if (!componentUsageDrawerEl) {
+                return;
+            }
+            componentUsageDrawerEl.classList.add("d-none");
+            componentUsageDrawerEl.setAttribute("aria-hidden", "true");
+            if (componentUsageTitle) {
+                componentUsageTitle.textContent = "";
+            }
+            if (componentUsageList) {
+                componentUsageList.innerHTML = "";
+            }
+            if (componentUsageSummaryEl) {
+                componentUsageSummaryEl.textContent = "共 0 个控制柜";
+            }
+        },
+        open: () => {
+            if (!componentUsageDrawerEl) {
+                return;
+            }
+            problemDrawer.close();
+            componentUsageDrawerEl.classList.remove("d-none");
+            componentUsageDrawerEl.setAttribute("aria-hidden", "false");
+        },
+        jumpTo: async (unitCode) => {
+            const target = (unitCode || "").trim();
+            if (!target) {
+                return;
+            }
+            try {
+                await loadCabinetComponents(target);
+                usageDrawer.close();
+            } catch (err) {
+                setMessage(err instanceof Error ? err.message : "跳转失败", true);
+            }
         }
-        componentUsagePanel.classList.add("d-none");
-        componentUsageTitle.textContent = "";
-        componentUsageList.innerHTML = "";
+    };
+
+    const hideUsagePanel = () => {
+        usageDrawer.close();
     };
 
     /**
-     * 渲染"元件使用控制柜"面板。
+     * 渲染"元件使用控制柜"抽屉。
      * @param {{name:string, spec:string, unit:string}} displayInfo 用于面板 title 展示
      * @param {Array<{unitCode:string, unitName:string, qty:number, priceMin?:number, priceMax?:number, vendors?:string[]}>} usageRows
      * @param {string} [message] 后端附带消息（如"该元件未填规格型号..."）
      */
     const renderUsagePanel = (displayInfo, usageRows, message) => {
-        if (!componentUsagePanel || !componentUsageTitle || !componentUsageList) {
+        if (!componentUsageDrawerEl || !componentUsageTitle || !componentUsageList) {
             return;
         }
         const safe = displayInfo || { name: "", spec: "", unit: "" };
@@ -672,7 +713,8 @@
         } else {
             usageRows.forEach((item) => {
                 const li = document.createElement("li");
-                li.className = "mb-1";
+                li.className = "usage-list-item";
+                li.setAttribute("data-unit-code", item.unitCode || "");
                 const priceText = formatUsagePriceRange(item.priceMin, item.priceMax);
                 const vendorText = Array.isArray(item.vendors) && item.vendors.length > 0
                     ? `；厂家：${item.vendors.join("、")}`
@@ -681,7 +723,10 @@
                 componentUsageList.appendChild(li);
             });
         }
-        componentUsagePanel.classList.remove("d-none");
+        if (componentUsageSummaryEl) {
+            componentUsageSummaryEl.textContent = `共 ${usageRows.length} 个控制柜`;
+        }
+        usageDrawer.open();
         highlightTreeUnits(usageRows.map((x) => x.unitCode));
     };
 
@@ -1178,6 +1223,7 @@
             return;
         }
         try {
+            hideUsagePanel();
             setMessage(`正在加载节点 ${target} 的柜内元件...`, false);
             leaveSummaryMode();
             // leaveSummaryMode 会清空选中态，这里需要恢复
@@ -1430,6 +1476,7 @@
     const problemDrawer = {
         open: () => {
             if (!problemListDrawerEl) return;
+            usageDrawer.close();
             problemListDrawerEl.classList.remove("d-none");
             problemListDrawerEl.setAttribute("aria-hidden", "false");
             problemDrawer.render(progressState.data);
@@ -1577,9 +1624,34 @@
             problemDrawer.jumpTo(cabCode, rowSeq);
         });
     }
-    // ESC 关闭抽屉
+    if (componentUsageCloseEl) {
+        componentUsageCloseEl.addEventListener("click", () => usageDrawer.close());
+    }
+    if (componentUsageDrawerEl) {
+        componentUsageDrawerEl.addEventListener("click", (event) => {
+            if (event.target.classList.contains("drawer-overlay")) {
+                usageDrawer.close();
+            }
+        });
+        componentUsageList?.addEventListener("click", (event) => {
+            const item = event.target.closest(".usage-list-item");
+            if (!item) {
+                return;
+            }
+            const unitCode = item.getAttribute("data-unit-code") || "";
+            usageDrawer.jumpTo(unitCode);
+        });
+    }
+
     document.addEventListener("keydown", (event) => {
-        if (event.key === "Escape" && problemListDrawerEl && !problemListDrawerEl.classList.contains("d-none")) {
+        if (event.key !== "Escape") {
+            return;
+        }
+        if (componentUsageDrawerEl && !componentUsageDrawerEl.classList.contains("d-none")) {
+            usageDrawer.close();
+            return;
+        }
+        if (problemListDrawerEl && !problemListDrawerEl.classList.contains("d-none")) {
             problemDrawer.close();
         }
     });
@@ -1845,15 +1917,23 @@
     hot.addHook("afterSelectionEnd", (row, column, row2, column2) => {
         const r2 = row2 !== undefined && row2 !== null ? row2 : row;
         const r = Math.min(row, r2);
+        const c2 = column2 !== undefined && column2 !== null ? column2 : column;
+        const cStart = Math.min(column, c2);
+        const cEnd = Math.max(column, c2);
         if (!Number.isFinite(r) || r < 0 || r >= hot.countRows()) {
             return;
         }
         if (rootSummaryMode || summaryMode) {
-            // 汇总视图按指纹归并展示，元件使用查询仅在柜体视图启用
             return;
         }
-        if (cabinetViewActive) {
+        if (!cabinetViewActive) {
+            return;
+        }
+        // 仅点击「序号」列时展示使用控制柜抽屉，其它列便于直接编辑
+        if (cStart === colSeq() && cEnd === colSeq()) {
             loadCabinetComponentUsage(r);
+        } else {
+            hideUsagePanel();
         }
     });
 
@@ -1957,8 +2037,9 @@
         let collapsed = false;
         const refreshToggleText = () => {
             toggleTreeBtn.innerHTML = collapsed
-                ? '<i class="bi bi-layout-sidebar me-1"></i>显示目录树'
-                : '<i class="bi bi-layout-sidebar-inset me-1"></i>隐藏目录树';
+                ? '<i class="bi bi-layout-sidebar"></i>'
+                : '<i class="bi bi-layout-sidebar-inset"></i>';
+            toggleTreeBtn.title = collapsed ? "显示目录树" : "隐藏目录树";
         };
         const setCollapsed = (nextCollapsed) => {
             collapsed = nextCollapsed;
