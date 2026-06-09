@@ -1,0 +1,151 @@
+@using PanelFlow.Core.Interfaces
+@using PanelFlow.Web.Extensions
+@inject IPermissionService PermissionService
+@inject IConfiguration Configuration
+@{
+    var loginUser = Context.Session.GetLoginUser();
+    var menus = loginUser != null
+        ? PermissionService.GetMenusForRole(loginUser.RoleName)
+        : new List<PanelFlow.Core.Models.MenuItemModel>();
+    var currentPath = Context.Request.Path.Value ?? "";
+    var defaultConnection = Configuration.GetConnectionString("DefaultConnection") ?? string.Empty;
+    var isTestDatabase = defaultConnection.Contains("192.168.8.7", StringComparison.OrdinalIgnoreCase);
+    var pageTitle = $"{ViewData["Title"]} - PanelFlow";
+    if (isTestDatabase)
+    {
+        pageTitle = $"[测试] {pageTitle}";
+    }
+    var workspaceTitle = ViewData["WorkspaceTitle"]?.ToString() ?? ViewData["BreadcrumbTitle"]?.ToString() ?? "";
+}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes" />
+    <meta name="theme-color" content="#1e40af" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="PanelFlow" />
+    <link rel="manifest" href="~/manifest.webmanifest" />
+    <link rel="icon" href="~/icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="~/icons/icon.svg" />
+    <title>@pageTitle</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="~/lib/bootstrap-icons/font/bootstrap-icons.min.css" />
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+</head>
+<body class="oa-layout-workspace">
+    <div class="oa-wrapper">
+        <nav class="oa-sidebar" id="sidebar">
+            <div class="oa-sidebar-header">
+                <i class="bi bi-lightning-charge-fill text-primary"></i>
+                <span class="oa-sidebar-title">PanelFlow</span>
+            </div>
+            <div class="oa-sidebar-body">
+                <ul class="oa-nav list-unstyled">
+                    <li class="oa-nav-item">
+                        <a href="/" class="oa-nav-link @(currentPath == "/" ? "active" : "")">
+                            <i class="bi bi-house-door"></i>
+                            <span>首页</span>
+                        </a>
+                    </li>
+                    @foreach (var menu in menus)
+                    {
+                        if (menu.Children.Count > 0)
+                        {
+                            var isExpanded = menu.Children.Any(c => c.Url != null && currentPath.StartsWith(c.Url, StringComparison.OrdinalIgnoreCase));
+                            <li class="oa-nav-item">
+                                <a class="oa-nav-link oa-nav-toggle @(isExpanded ? "" : "collapsed")"
+                                   data-bs-toggle="collapse"
+                                   data-bs-target="#menu-@menu.Title.GetHashCode()"
+                                   aria-expanded="@(isExpanded ? "true" : "false")">
+                                    <i class="bi @menu.Icon"></i>
+                                    <span>@menu.Title</span>
+                                    <i class="bi bi-chevron-down oa-chevron ms-auto"></i>
+                                </a>
+                                <ul class="collapse list-unstyled oa-submenu @(isExpanded ? "show" : "")"
+                                    id="menu-@menu.Title.GetHashCode()">
+                                    @foreach (var child in menu.Children)
+                                    {
+                                        var childActive = child.Url != null && currentPath.StartsWith(child.Url, StringComparison.OrdinalIgnoreCase);
+                                        <li>
+                                            <a href="@child.Url" class="oa-nav-link oa-subnav-link @(childActive ? "active" : "")">
+                                                <i class="bi @child.Icon"></i>
+                                                <span>@child.Title</span>
+                                            </a>
+                                        </li>
+                                    }
+                                </ul>
+                            </li>
+                        }
+                        else
+                        {
+                            var active = menu.Url != null && currentPath.StartsWith(menu.Url, StringComparison.OrdinalIgnoreCase);
+                            <li class="oa-nav-item">
+                                <a href="@menu.Url" class="oa-nav-link @(active ? "active" : "")">
+                                    <i class="bi @menu.Icon"></i>
+                                    <span>@menu.Title</span>
+                                </a>
+                            </li>
+                        }
+                    }
+                </ul>
+            </div>
+        </nav>
+
+        <div class="oa-main">
+            <header class="oa-topbar oa-topbar--compact @(isTestDatabase ? "oa-topbar-test" : "")">
+                <button class="btn btn-sm btn-outline-secondary oa-sidebar-toggle" id="sidebarToggle">
+                    <i class="bi bi-list"></i>
+                </button>
+                @if (isTestDatabase)
+                {
+                    <span class="oa-env-badge">测试</span>
+                }
+                @if (!string.IsNullOrWhiteSpace(workspaceTitle))
+                {
+                    <span class="oa-workspace-title small fw-semibold text-dark ms-2 text-truncate">@workspaceTitle</span>
+                }
+                <div class="ms-auto d-flex align-items-center">
+                    <div class="dropdown">
+                        <a class="d-flex align-items-center text-decoration-none" role="button"
+                           data-bs-toggle="dropdown" aria-expanded="false" id="userDropdown"
+                           title="@loginUser?.DisplayName">
+                            <i class="bi bi-person-circle fs-5 oa-avatar"></i>
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end shadow-sm" aria-labelledby="userDropdown">
+                            <li class="dropdown-header small">
+                                <div class="fw-semibold">@loginUser?.DisplayName</div>
+                                <div class="text-muted">@loginUser?.RoleName</div>
+                            </li>
+                            <li><hr class="dropdown-divider" /></li>
+                            <li>
+                                <a class="dropdown-item" href="/Account/ChangePassword">
+                                    <i class="bi bi-key me-2"></i>修改密码
+                                </a>
+                            </li>
+                            <li><hr class="dropdown-divider" /></li>
+                            <li>
+                                <form asp-controller="Account" asp-action="Logout" method="post" class="mb-0">
+                                    @Html.AntiForgeryToken()
+                                    <button type="submit" class="dropdown-item text-danger">
+                                        <i class="bi bi-box-arrow-right me-2"></i>退出登录
+                                    </button>
+                                </form>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </header>
+
+            <main class="oa-content oa-content--workspace">
+                @RenderBody()
+            </main>
+        </div>
+    </div>
+
+    <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="~/js/site.js" asp-append-version="true"></script>
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>
