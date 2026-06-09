@@ -34,13 +34,17 @@ public class PermissionService : IPermissionService
             if (!CanAccess(menu, roleName))
                 continue;
 
+            var filteredChildren = FilterMenusForRole(menu.Children, roleName);
+            if (menu.Url == null && filteredChildren.Count == 0)
+                continue;
+
             var filtered = new MenuItemModel
             {
                 Title = menu.Title,
                 Icon = menu.Icon,
                 Url = menu.Url,
                 AllowedRoles = menu.AllowedRoles,
-                Children = FilterMenusForRole(menu.Children, roleName)
+                Children = filteredChildren
             };
             result.Add(filtered);
         }
@@ -74,6 +78,7 @@ public class PermissionService : IPermissionService
     {
         var admin = new[] { RoleNames.Admin };
         var quoterRoles = new[] { RoleNames.Admin, RoleNames.Quoter, RoleNames.ProductionManager };
+        var priceHistoryRoles = new[] { RoleNames.Admin, RoleNames.Quoter };
         var contractRoles = new[] { RoleNames.Admin, RoleNames.Quoter };
         var productionRoles = new[] { RoleNames.Admin, RoleNames.ProductionManager };
         var purchaseRoles = new[] { RoleNames.Admin, RoleNames.Purchaser };
@@ -93,12 +98,27 @@ public class PermissionService : IPermissionService
                 [
                     new() { Title = "报价单", Icon = "bi-file-text", Url = "/Quotation/Index",
                         AllowedRoles = [.. quoterRoles] },
-                    new() { Title = "制造合同", Icon = "bi-file-earmark-check", Url = "/Contract/Index",
-                        AllowedRoles = [.. contractRoles] },
-                    new() { Title = "客户", Icon = "bi-buildings", Url = "/Customer/Index",
+                    new() { Title = "报价单结构维护", Icon = "bi-diagram-3", Url = "/Quotation/StructureMaintain",
                         AllowedRoles = [.. quoterRoles] },
                     new() { Title = "Excel合并", Icon = "bi-files", Url = "/Quotation/MergeExcel",
                         AllowedRoles = [.. quoterRoles] },
+                    new() { Title = "制造合同", Icon = "bi-file-earmark-check", Url = "/Contract/Index",
+                        AllowedRoles = [.. contractRoles] },
+                    new MenuItemModel
+                    {
+                        Title = "基础数据",
+                        Icon = "bi-database",
+                        AllowedRoles = [.. quoterRoles],
+                        Children =
+                        [
+                            new() { Title = "客户", Icon = "bi-buildings", Url = "/Customer/Index",
+                                AllowedRoles = [.. quoterRoles] },
+                            new() { Title = "通用项字典", Icon = "bi-collection", Url = "/ElementDict/Index",
+                                AllowedRoles = [.. quoterRoles] },
+                            new() { Title = "历史价格维护", Icon = "bi-cash-stack", Url = "/PriceHistory/Index",
+                                AllowedRoles = [.. priceHistoryRoles] },
+                        ]
+                    },
                 ]
             },
             new MenuItemModel

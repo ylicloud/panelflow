@@ -60,6 +60,10 @@ GO
 
 -- ============================================================
 -- 3. 创建存储过程
+-- 说明：完整版（含剔除来源过滤）见 SP_RefreshPriceHistory.sql；
+--       部署历史价格维护功能后请执行 create-std-price-exclusion.sql
+--       再执行 SP_RefreshPriceHistory.sql 覆盖本处初始版本。
+-- 筛选口径：x_bjb_datetime 非空且在近 5 年内（排除早期无报价日期的陈旧数据）
 -- ============================================================
 IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[SP_RefreshPriceHistory]') AND type = 'P')
     DROP PROCEDURE [dbo].[SP_RefreshPriceHistory];
@@ -70,53 +74,55 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
-    DECLARE @tenYearsAgo DATETIME = DATEADD(YEAR, -10, GETDATE());
+    DECLARE @fiveYearsAgo DATETIME = DATEADD(YEAR, -5, GETDATE());
 
-    -- CTE: 取每个 x_wzdh 的最新一条记录（按 fabh 降序）
+    -- CTE: 取每个 x_wzdh 在近 5 年内的最新一条记录（按 fabh 降序）
     ;WITH LatestRow AS (
-        SELECT 
+        SELECT
             b.x_wzdh,
             b.x_ggxh,
             b.x_mc,
             b.x_dw,
             b.x_sccj,
-            b.x_bjb_dj,
+            b.x_bj_dj,
             b.fabh,
             b.x_bjb_datetime,
             ROW_NUMBER() OVER (PARTITION BY b.x_wzdh ORDER BY b.fabh DESC) AS rn
         FROM BJB b
         INNER JOIN BJFAT f ON LTRIM(RTRIM(b.fabh)) = LTRIM(RTRIM(f.fabh))
         WHERE b.x_wzdh IS NOT NULL AND b.x_wzdh != ''
+          AND b.x_bjb_datetime IS NOT NULL
+          AND b.x_bjb_datetime >= @fiveYearsAgo
           AND b.x_lx = 11
-          AND b.x_bjb_dj > 0
+          AND b.x_bj_dj > 0
           AND f.dqzt = 10
     ),
-    -- CTE: 按 x_wzdh 聚合最近 5 年的统计数据
+    -- CTE: 按 x_wzdh 聚合近 5 年统计数据
     RecentStats AS (
-        SELECT 
+        SELECT
             b.x_wzdh,
-            AVG(b.x_bjb_dj) AS avg_price,
+            AVG(b.x_bj_dj) AS avg_price,
             COUNT(*) AS avg_count,
-            MIN(b.x_bjb_dj) AS min_price,
-            MAX(b.x_bjb_dj) AS max_price
+            MIN(b.x_bj_dj) AS min_price,
+            MAX(b.x_bj_dj) AS max_price
         FROM BJB b
         INNER JOIN BJFAT f ON LTRIM(RTRIM(b.fabh)) = LTRIM(RTRIM(f.fabh))
         WHERE b.x_wzdh IS NOT NULL AND b.x_wzdh != ''
+          AND b.x_bjb_datetime IS NOT NULL
+          AND b.x_bjb_datetime >= @fiveYearsAgo
           AND b.x_lx = 11
-          AND b.x_bjb_dj > 0
+          AND b.x_bj_dj > 0
           AND f.dqzt = 10
-          AND (b.x_bjb_datetime >= @tenYearsAgo OR b.x_bjb_datetime IS NULL)
         GROUP BY b.x_wzdh
     ),
-    -- 合并最新行和统计数据
     SourceData AS (
-        SELECT 
+        SELECT
             lr.x_wzdh,
             lr.x_ggxh AS ggxh,
             lr.x_mc,
             lr.x_dw,
             lr.x_sccj,
-            lr.x_bjb_dj AS last_price,
+            lr.x_bj_dj AS last_price,
             lr.fabh AS last_fabh,
             lr.x_bjb_datetime AS last_date,
             rs.avg_price,
@@ -127,7 +133,6 @@ BEGIN
         LEFT JOIN RecentStats rs ON lr.x_wzdh = rs.x_wzdh
         WHERE lr.rn = 1
     )
-    -- MERGE: 插入或更新
     MERGE INTO STD_PRICE_HISTORY AS target
     USING SourceData AS source
     ON target.x_wzdh = source.x_wzdh
@@ -146,11 +151,13 @@ BEGIN
             target.max_price  = source.max_price,
             target.updated_at = GETDATE()
     WHEN NOT MATCHED BY TARGET THEN
-        INSERT (x_wzdh, ggxh, x_mc, x_dw, x_sccj, last_price, last_fabh, last_date, 
+        INSERT (x_wzdh, ggxh, x_mc, x_dw, x_sccj, last_price, last_fabh, last_date,
                 avg_price, avg_count, min_price, max_price, updated_at)
-        VALUES (source.x_wzdh, source.ggxh, source.x_mc, source.x_dw, source.x_sccj, source.last_price, 
-                source.last_fabh, source.last_date, source.avg_price, source.avg_count, 
-                source.min_price, source.max_price, GETDATE());
+        VALUES (source.x_wzdh, source.ggxh, source.x_mc, source.x_dw, source.x_sccj, source.last_price,
+                source.last_fabh, source.last_date, source.avg_price, source.avg_count,
+                source.min_price, source.max_price, GETDATE())
+    WHEN NOT MATCHED BY SOURCE THEN
+        DELETE;
 
     PRINT '刷新完成，影响行数: ' + CAST(@@ROWCOUNT AS VARCHAR(20));
 END

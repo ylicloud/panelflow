@@ -14,4 +14,12 @@ public class MenuItemModel
 
     /// <summary>允许访问此菜单的角色列表（空=全部允许）</summary>
     public List<string> AllowedRoles { get; set; } = [];
+
+    /// <summary>当前路径是否匹配本节点或任意子孙菜单链接。</summary>
+    public bool IsActiveForPath(string currentPath)
+    {
+        if (Url != null && currentPath.StartsWith(Url, StringComparison.OrdinalIgnoreCase))
+            return true;
+        return Children.Exists(c => c.IsActiveForPath(currentPath));
+    }
 }

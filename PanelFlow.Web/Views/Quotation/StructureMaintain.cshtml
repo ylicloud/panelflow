@@ -1,0 +1,117 @@
+@{
+    ViewData["Title"] = "报价单结构维护";
+    var searchUrl = Url.Action("SearchQuotations", "Quotation") ?? string.Empty;
+    var treeUrl = Url.Action("GetQuotationTree", "Quotation") ?? string.Empty;
+    var applyUrl = Url.Action("ApplyStructure", "Quotation") ?? string.Empty;
+    var dictUrl = Url.Action("GetByLevel", "ElementDict") ?? string.Empty;
+}
+
+<link rel="stylesheet" href="~/css/quotation-structure.css" asp-append-version="true" />
+
+<div class="oa-card mb-3">
+    <div class="row g-2 align-items-end">
+        <div class="col-md-5 position-relative">
+            <label class="form-label small mb-1">检索报价单</label>
+            <input id="quotation-search" type="text" class="form-control form-control-sm"
+                   placeholder="检索本人未成立的报价单（编号/名称/客户）" autocomplete="off" />
+            <div id="search-results" class="oa-search-dropdown d-none"></div>
+        </div>
+        <div class="col-md-7">
+            <div id="quotation-info" class="small text-muted">请先检索并选择一份报价单</div>
+        </div>
+    </div>
+    <div id="page-info-bar" class="small mt-2"></div>
+</div>
+
+<div class="structure-workspace" id="structure-workspace">
+    <div class="structure-tree-pane oa-card" id="structure-tree-pane">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-1 mb-2">
+            <span class="fw-semibold small">结构树</span>
+            <div class="d-flex flex-wrap gap-1">
+                <button id="select-all-cabs-btn" type="button" class="btn btn-sm btn-outline-secondary" disabled title="全选控制柜">全选</button>
+                <button id="invert-cabs-btn" type="button" class="btn btn-sm btn-outline-secondary" disabled title="反选控制柜">反选</button>
+                <button id="expand-all-btn" type="button" class="btn btn-sm btn-outline-secondary" disabled title="全部展开">展开</button>
+                <button id="collapse-all-btn" type="button" class="btn btn-sm btn-outline-secondary" disabled title="全部折叠">折叠</button>
+                <button id="refresh-tree-btn" type="button" class="btn btn-sm btn-outline-secondary" disabled title="刷新">
+                    <i class="bi bi-arrow-clockwise"></i>
+                </button>
+            </div>
+        </div>
+        <div id="structure-tree" class="oa-structure-tree">
+            <div class="text-muted small py-2">未加载</div>
+        </div>
+    </div>
+
+    <div id="structure-splitter" class="structure-splitter" role="separator" aria-orientation="vertical" aria-label="调整左右面板宽度"></div>
+
+    <div class="structure-op-pane oa-card" id="structure-op-pane">
+        <div class="fw-semibold small mb-2">操作面板</div>
+        <div id="op-disabled-hint" class="text-muted small mb-2">选择报价单后可用</div>
+
+        <div id="op-panel" class="d-none">
+            <div class="mb-2">
+                <span class="small text-muted">已选节点：</span>
+                <span id="selected-summary" class="small">无</span>
+            </div>
+
+            <div id="op-add-l1" class="op-section d-none">
+                <div class="small fw-semibold mb-1">挂入第1级扩展项（运费/保费/侧板等）</div>
+                <div id="dict-l1-list" class="oa-dict-checklist mb-2"></div>
+                <button type="button" class="btn btn-sm btn-primary" id="btn-add-l1">挂入扩展项</button>
+            </div>
+
+            <div id="op-batch-cabinet" class="op-section d-none">
+                <div class="small fw-semibold mb-1">按控制柜批量操作</div>
+                <div class="small text-muted mb-2">已选 <span id="cabinet-count">0</span> 个控制柜</div>
+                <div class="small fw-semibold mb-1">第2级单元属性</div>
+                <div id="dict-l2-batch-list" class="oa-dict-checklist mb-2"></div>
+                <div class="small fw-semibold mb-1">第3级通用元件（挂到器件下）</div>
+                <div id="dict-l3-batch-list" class="oa-dict-checklist mb-2"></div>
+                <div class="d-flex flex-wrap gap-2">
+                    <button type="button" class="btn btn-sm btn-primary" id="btn-batch-add">批量挂入</button>
+                    <button type="button" class="btn btn-sm btn-outline-danger" id="btn-batch-remove">批量移除</button>
+                </div>
+            </div>
+
+            <div id="op-add-l2" class="op-section d-none">
+                <div class="small fw-semibold mb-1">挂入第2级单元属性</div>
+                <div id="dict-l2-list" class="oa-dict-checklist mb-2"></div>
+                <button type="button" class="btn btn-sm btn-primary oa-apply-btn" data-op="AddLevel2">挂入属性</button>
+            </div>
+
+            <div id="op-add-l3" class="op-section d-none">
+                <div class="small fw-semibold mb-1">挂入第3级通用元件</div>
+                <div id="dict-l3-list" class="oa-dict-checklist mb-2"></div>
+                <button type="button" class="btn btn-sm btn-primary oa-apply-btn" data-op="AddLevel3">挂入元件</button>
+            </div>
+
+            <div id="op-rename" class="op-section d-none">
+                <div class="small fw-semibold mb-1">改名</div>
+                <input id="rename-input" type="text" class="form-control form-control-sm mb-2" maxlength="50" />
+                <button type="button" class="btn btn-sm btn-outline-primary oa-apply-btn" data-op="Rename">保存名称</button>
+            </div>
+
+            <div id="op-delete" class="op-section d-none">
+                <button type="button" class="btn btn-sm btn-outline-danger oa-apply-btn" data-op="Delete">删除选中节点</button>
+            </div>
+
+            <div id="op-reorder" class="op-section d-none">
+                <div class="small fw-semibold mb-1">调整同级顺序</div>
+                <div class="small text-muted mb-1">使用节点旁的 ↑↓ 调整顺序后点保存</div>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="save-reorder-btn" disabled>保存顺序</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@Html.AntiForgeryToken()
+
+<div id="structure-config"
+     data-search-url="@searchUrl"
+     data-tree-url="@treeUrl"
+     data-apply-url="@applyUrl"
+     data-dict-url="@dictUrl"></div>
+
+@section Scripts {
+    <script src="~/js/quotation-structure.js" asp-append-version="true"></script>
+}

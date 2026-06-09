@@ -1,0 +1,74 @@
+.oa-ph-search {
+    min-width: 200px;
+    max-width: 280px;
+}
+
+#page-info-bar.is-error {
+    color: var(--bs-danger);
+}
+
+.oa-ph-row-suspect {
+    background-color: #fff3cd;
+}
+
+.oa-ph-source-suspect {
+    background-color: #ffe5d0;
+}
+
+.oa-ph-source-excluded {
+    opacity: 0.55;
+}
+
+.oa-ph-badge-suspect {
+    font-size: 0.7rem;
+}
+
+.oa-ph-deviation-warn {
+    color: #b45309;
+    font-weight: 600;
+}
+
+.oa-ph-sortable {
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+
+.oa-ph-sortable:hover {
+    background-color: rgba(0, 0, 0, 0.04);
+}
+
+.oa-ph-sortable::after {
+    content: " ⇅";
+    font-size: 0.65rem;
+    color: #adb5bd;
+    font-weight: normal;
+}
+
+.oa-ph-sort-active::after {
+    color: #0d6efd;
+    font-weight: bold;
+}
+
+.oa-ph-sort-active[data-sort-dir="asc"]::after {
+    content: " ↑";
+}
+
+.oa-ph-sort-active[data-sort-dir="desc"]::after {
+    content: " ↓";
+}
+
+.oa-ph-trend-chart {
+    width: 100%;
+    min-height: 200px;
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+    background: #fafbfc;
+    overflow: hidden;
+}
+
+.oa-ph-trend-chart svg {
+    display: block;
+    width: 100%;
+    height: 200px;
+}
