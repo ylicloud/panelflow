@@ -1,0 +1,28 @@
+/* 通用项字典维护页样式 */
+.oa-dict-locked {
+    color: #6c757d;
+}
+
+.oa-dict-disabled td {
+    opacity: 0.55;
+}
+
+.oa-order-btns {
+    display: inline-flex;
+    gap: 2px;
+}
+
+.oa-order-btns .btn {
+    padding: 0 6px;
+    line-height: 1.4;
+}
+
+#page-info-bar.is-error {
+    color: #dc3545;
+}
+
+@media (max-width: 768px) {
+    .table-responsive {
+        -webkit-overflow-scrolling: touch;
+    }
+}

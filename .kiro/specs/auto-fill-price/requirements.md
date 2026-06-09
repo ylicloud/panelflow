@@ -33,8 +33,8 @@
 
 1. THE STD_PRICE_HISTORY 表 SHALL 以 x_wzdh 为唯一键，存储每个唯一 x_wzdh 对应的最新报价（last_price）、最新来源方案编号（last_fabh）、最新报价时间（last_date）、原始规格型号（ggxh）、元件名称（x_mc）、计量单位（x_dw）、厂商（x_sccj）、近 5 年均价（avg_price）、近 5 年最低价（min_price）、近 5 年最高价（max_price）、样本数（avg_count）和最后刷新时间（updated_at）
 2. THE SP_RefreshPriceHistory 存储过程 SHALL 从 BJB 表中筛选 x_lx=11 且 x_bj_dj>0 且 x_wzdh 非空且所属报价单（BJFAT）dqzt=10（已成立）的元件记录进行聚合
-3. THE SP_RefreshPriceHistory 存储过程 SHALL 按 x_wzdh 分组，取 fabh 降序的第一条记录的 x_ggxh、x_mc、x_dw、x_sccj、x_bj_dj、fabh、x_bjb_datetime 作为最新报价信息
-4. THE SP_RefreshPriceHistory 存储过程 SHALL 对每个 x_wzdh 分组中 x_bjb_datetime 在最近 5 年内或为 NULL 的记录，计算平均价格、最低价格、最高价格和样本数
+3. THE SP_RefreshPriceHistory 存储过程 SHALL 按 x_wzdh 分组，在 x_bjb_datetime 非空且在近 5 年内的记录中取 fabh 降序的第一条，将其 x_ggxh、x_mc、x_dw、x_sccj、x_bj_dj、fabh、x_bjb_datetime 作为最新报价信息
+4. THE SP_RefreshPriceHistory 存储过程 SHALL 仅对 x_bjb_datetime 非空且在最近 5 年内的记录计算平均价格、最低价格、最高价格和样本数（排除早期无报价日期的陈旧数据）
 5. WHEN 保存方案（SavePlan）写入 BJB 时，THE 系统 SHALL 对每个元件行使用 NormalizeSpec 函数处理 x_ggxh 字段并将结果写入 x_wzdh 字段
 6. IF 元件行的 x_ggxh 为 NULL 或空字符串，THEN THE 系统 SHALL 将该行的 x_wzdh 设为 NULL 且不参与后续历史价格聚合
 7. THE SQL Server Agent 定时任务 SHALL 每天凌晨 2:00 执行 SP_RefreshPriceHistory 存储过程

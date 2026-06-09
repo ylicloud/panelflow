@@ -55,7 +55,7 @@
                     {
                         if (menu.Children.Count > 0)
                         {
-                            var isExpanded = menu.Children.Any(c => c.Url != null && currentPath.StartsWith(c.Url, StringComparison.OrdinalIgnoreCase));
+                            var isExpanded = menu.IsActiveForPath(currentPath);
                             <li class="oa-nav-item">
                                 <a class="oa-nav-link oa-nav-toggle @(isExpanded ? "" : "collapsed")"
                                    data-bs-toggle="collapse"
@@ -69,13 +69,45 @@
                                     id="menu-@menu.Title.GetHashCode()">
                                     @foreach (var child in menu.Children)
                                     {
-                                        var childActive = child.Url != null && currentPath.StartsWith(child.Url, StringComparison.OrdinalIgnoreCase);
-                                        <li>
-                                            <a href="@child.Url" class="oa-nav-link oa-subnav-link @(childActive ? "active" : "")">
-                                                <i class="bi @child.Icon"></i>
-                                                <span>@child.Title</span>
-                                            </a>
-                                        </li>
+                                        if (child.Children.Count > 0)
+                                        {
+                                            var groupExpanded = child.IsActiveForPath(currentPath);
+                                            var groupId = $"menu-{menu.Title.GetHashCode()}-{child.Title.GetHashCode()}";
+                                            <li>
+                                                <a href="#"
+                                                   class="oa-nav-link oa-subnav-link oa-nav-toggle @(groupExpanded ? "" : "collapsed")"
+                                                   data-bs-toggle="collapse"
+                                                   data-bs-target="#@groupId"
+                                                   aria-expanded="@(groupExpanded ? "true" : "false")">
+                                                    <i class="bi @child.Icon"></i>
+                                                    <span>@child.Title</span>
+                                                    <i class="bi bi-chevron-down oa-chevron ms-auto"></i>
+                                                </a>
+                                                <ul class="collapse list-unstyled oa-submenu oa-submenu-nested @(groupExpanded ? "show" : "")"
+                                                    id="@groupId">
+                                                    @foreach (var leaf in child.Children)
+                                                    {
+                                                        var leafActive = leaf.IsActiveForPath(currentPath);
+                                                        <li>
+                                                            <a href="@leaf.Url" class="oa-nav-link oa-subnav-link oa-subnav-link-leaf @(leafActive ? "active" : "")">
+                                                                <i class="bi @leaf.Icon"></i>
+                                                                <span>@leaf.Title</span>
+                                                            </a>
+                                                        </li>
+                                                    }
+                                                </ul>
+                                            </li>
+                                        }
+                                        else
+                                        {
+                                            var childActive = child.IsActiveForPath(currentPath);
+                                            <li>
+                                                <a href="@child.Url" class="oa-nav-link oa-subnav-link @(childActive ? "active" : "")">
+                                                    <i class="bi @child.Icon"></i>
+                                                    <span>@child.Title</span>
+                                                </a>
+                                            </li>
+                                        }
                                     }
                                 </ul>
                             </li>

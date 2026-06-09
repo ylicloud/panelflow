@@ -7,6 +7,10 @@
   2.1 在XMYLB表中，不能存在bjd_fabh=原方案编号的数据行；
   2.2 在BJFAT表中，dqzt字段不能为10（已成立）；
   2.3 在BJFAT表中，bjr字段应该与当前登录用户名一致；(只能修改自己的报价单)
+  注：2.2+2.3 与报价单列表「修改/删除/报价」按钮、结构维护页检索口径相同，代码统一为
+      PanelFlow.Core/Rules/QuotationEditRules.CanOwnerOperate（dqzt≠10 且 bjr=当前用户）。
+      列表检索 SQL 过滤见 Infrastructure/Extensions/QuotationQueryExtensions.WhereOwnerOperable。
+      结构维护「写操作」另允许管理员（与列表按钮不同，见 quotation-element-maintenance 需求 8.2）。
   2.4 在BJFAT表中，方案创建时间fasj距离当前时间不能超过30天；(不能修改太久的报价单) 
   2.5 新的方案编号在BJFAT表中不能重复(不能修改为已存在的方案编号)
   上述条件如不符合，则不能修改方案编号。并且页面给出提示。

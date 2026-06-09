@@ -3,6 +3,7 @@ using PanelFlow.Core.Interfaces;
 using PanelFlow.Core.Models;
 using PanelFlow.Core.Services;
 using PanelFlow.Infrastructure.Data;
+using PanelFlow.Infrastructure.Extensions;
 using PanelFlow.Web.Extensions;
 using PanelFlow.Web.Filters;
 using PanelFlow.Web.Helpers;
@@ -23,17 +24,23 @@ public class QuotationController : Controller
     private readonly ApplicationDbContext _db;
     private readonly ILogger<QuotationController> _logger;
     private readonly IAuditLogService _auditLogService;
+    private readonly IElementDictService _elementDictService;
+    private readonly IQuotationStructureService _structureService;
 
     public QuotationController(
         IQuotationService quotationService,
         ApplicationDbContext db,
         ILogger<QuotationController> logger,
-        IAuditLogService auditLogService)
+        IAuditLogService auditLogService,
+        IElementDictService elementDictService,
+        IQuotationStructureService structureService)
     {
         _quotationService = quotationService;
         _db = db;
         _logger = logger;
         _auditLogService = auditLogService;
+        _elementDictService = elementDictService;
+        _structureService = structureService;
     }
 
     [HttpGet]
@@ -128,7 +135,122 @@ public class QuotationController : Controller
         return Json(items);
     }
 
-﻿    [HttpGet]
+    /// <summary>
+    /// 结构维护页检索：与 Index 行操作条件一致，仅返回本人且未成立(dqzt≠10)的报价单。
+    /// </summary>
+    [HttpGet]
+    public async Task<IActionResult> SearchQuotations(string? keyword)
+    {
+        var loginUser = HttpContext.Session.GetLoginUser();
+        var loginUserName = (loginUser?.UserName ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(loginUserName))
+            return Json(Array.Empty<object>());
+
+        var kw = (keyword ?? string.Empty).Trim();
+        var cutoff = DateTime.Today.AddYears(-2);
+
+        var query =
+            from q in _db.BjfatQuotations.AsNoTracking().WhereOwnerOperable(loginUserName)
+            join c0 in _db.KhylbCustomers.AsNoTracking()
+                on q.khbh.Trim() equals c0.gsbh into cg
+            from c in cg.DefaultIfEmpty()
+            where q.fasj.HasValue && q.fasj.Value >= cutoff
+            select new { q, c };
+
+        if (!string.IsNullOrWhiteSpace(kw))
+        {
+            query = query.Where(x =>
+                x.q.fabh.Contains(kw) ||
+                x.q.famc.Contains(kw) ||
+                x.q.bjr.Contains(kw) ||
+                x.q.khbh.Contains(kw) ||
+                (x.c != null && x.c.gsmc.Contains(kw)) ||
+                (x.c != null && x.c.gsld.Contains(kw)));
+        }
+
+        var items = await query
+            .OrderByDescending(x => x.q.fasj)
+            .ThenByDescending(x => x.q.fabh)
+            .Take(20)
+            .Select(x => new
+            {
+                quotationNo = (x.q.fabh ?? string.Empty).Trim(),
+                quotationName = (x.q.famc ?? string.Empty).Trim(),
+                quoter = (x.q.bjr ?? string.Empty).Trim(),
+                customerName = (x.c != null ? (x.c.gsmc ?? string.Empty).Trim() : string.Empty),
+                currentStatus = x.q.dqzt
+            })
+            .ToListAsync();
+
+        return Json(items);
+    }
+
+    [HttpGet]
+    public IActionResult StructureMaintain()
+    {
+        ViewData["Title"] = "报价单结构维护";
+        ViewData["BreadcrumbTitle"] = "报价单结构维护";
+        return View();
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> GetQuotationTree(string fabh)
+    {
+        var loginUser = HttpContext.Session.GetLoginUser();
+        var loginUserName = (loginUser?.UserName ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(loginUserName))
+        {
+            return Unauthorized(new { success = false, message = "登录已失效，请重新登录后再试" });
+        }
+
+        var tree = await _structureService.GetTreeAsync(
+            fabh ?? string.Empty, loginUserName, loginUser?.RoleName ?? string.Empty);
+        if (tree == null)
+        {
+            return NotFound(new { success = false, message = "报价单不存在" });
+        }
+
+        return Json(new { success = true, data = tree });
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> ApplyStructure([FromBody] StructureApplyRequest? request)
+    {
+        if (request == null)
+        {
+            return BadRequest(new { success = false, message = "请求无效" });
+        }
+
+        var loginUser = HttpContext.Session.GetLoginUser();
+        var loginUserName = (loginUser?.UserName ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(loginUserName))
+        {
+            return Unauthorized(new { success = false, message = "登录已失效，请重新登录后再试" });
+        }
+
+        var result = await _structureService.ApplyAsync(
+            request, loginUserName, loginUser?.RoleName ?? string.Empty);
+
+        if (!result.Success)
+        {
+            return BadRequest(new { success = false, message = result.Message });
+        }
+
+        return Ok(new
+        {
+            success = true,
+            message = result.Message,
+            addedCount = result.AddedCount,
+            skippedCount = result.SkippedCount,
+            deletedCount = result.DeletedCount,
+            renamedCount = result.RenamedCount,
+            reorderedCount = result.ReorderedCount,
+            totalRowsWritten = result.TotalRowsWritten
+        });
+    }
+
+    [HttpGet]
     public async Task<IActionResult> Edit(string id)
     {
         ViewData["Title"] = "编辑报价单";
@@ -1209,7 +1331,10 @@ WHERE fabh = {quotationNo}
             });
         }
 
-        var rowsToInsert = BuildRowsFromTable(tableRows, treeNodeNames);
+        // 第2级默认节点改由通用项字典驱动（Level=2 且 IsDefaultOnImport=1 且 IsEnabled=1，按 SortOrder）。
+        // 字典为空时回退到内置默认 5 类，保证行为不退化。
+        var defaultLevel2Nodes = await _elementDictService.GetDefaultImportLevel2Async();
+        var rowsToInsert = BuildRowsFromTable(tableRows, treeNodeNames, defaultLevel2Nodes);
         if (rowsToInsert.Count == 0)
             return BadRequest(new { success = false, message = "未解析到可保存的目录/元件数据" });
 
@@ -1520,8 +1645,23 @@ WHERE fabh = {fabh}
     // [InternalsVisibleTo("PanelFlow.Web.Tests")] 直接调用。本调整仅扩大可见范围、
     // 不改变方法行为，与设计文档 design.md "风险与未验证项" 中 "BuildRowsFromTable
     // 当前位于 Controller 内部，PBT 测试需要将其从 internal 升级访问可见性" 一致。
-    internal static List<BjbWriteRow> BuildRowsFromTable(List<List<string?>> tableRows, List<string> treeNodeNames)
+    /// <summary>
+    /// 导入时为每个控制柜固定插入的第 2 级默认节点（与历史 PB 行为等价）。
+    /// 当未传入字典默认列表时作为回退，保证编码顺序：器件固定首位（其下挂 12 位元件）。
+    /// </summary>
+    private static readonly IReadOnlyList<(string Name, int Xlx)> FallbackDefaultLevel2Nodes =
+    [
+        ("器件", 1), ("辅料", 12), ("壳体", 13), ("安装", 14), ("包装", 15)
+    ];
+
+    internal static List<BjbWriteRow> BuildRowsFromTable(
+        List<List<string?>> tableRows,
+        List<string> treeNodeNames,
+        IReadOnlyList<(string Name, int Xlx)>? defaultLevel2Nodes = null)
     {
+        var level2Nodes = defaultLevel2Nodes is { Count: > 0 }
+            ? defaultLevel2Nodes
+            : FallbackDefaultLevel2Nodes;
         var sourceUnits = ParseSourceUnits(tableRows);
         if (sourceUnits.Count == 0)
         {
@@ -1560,11 +1700,11 @@ WHERE fabh = {fabh}
                     Xlx = 1
                 });
 
-                result.Add(CreateFixedNode(currentUnitCode, "0001", "器件", 1));
-                result.Add(CreateFixedNode(currentUnitCode, "0002", "辅料", 12));
-                result.Add(CreateFixedNode(currentUnitCode, "0003", "壳体", 13));
-                result.Add(CreateFixedNode(currentUnitCode, "0004", "安装", 14));
-                result.Add(CreateFixedNode(currentUnitCode, "0005", "包装", 15));
+                for (var nodeIdx = 0; nodeIdx < level2Nodes.Count; nodeIdx++)
+                {
+                    var suffix = (nodeIdx + 1).ToString("D4", CultureInfo.InvariantCulture);
+                    result.Add(CreateFixedNode(currentUnitCode, suffix, level2Nodes[nodeIdx].Name, level2Nodes[nodeIdx].Xlx));
+                }
 
                 var componentSeq = 0;
                 foreach (var component in sourceUnit.Components)
