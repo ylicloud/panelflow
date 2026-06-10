@@ -1,0 +1,125 @@
+@{
+    ViewData["Title"] = "通用项字典";
+    var getByLevelUrl = Url.Action("GetByLevel", "ElementDict") ?? string.Empty;
+    var createUrl = Url.Action("Create", "ElementDict") ?? string.Empty;
+    var updateUrl = Url.Action("Update", "ElementDict") ?? string.Empty;
+    var toggleUrl = Url.Action("ToggleEnable", "ElementDict") ?? string.Empty;
+    var reorderUrl = Url.Action("Reorder", "ElementDict") ?? string.Empty;
+}
+
+<link rel="stylesheet" href="~/css/element-dict.css" asp-append-version="true" />
+
+<div class="oa-card mb-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <ul class="nav nav-pills" id="level-tabs">
+            <li class="nav-item"><button type="button" class="nav-link active" data-level="2">第2级 单元属性</button></li>
+            <li class="nav-item"><button type="button" class="nav-link" data-level="1">第1级 控制柜/费用项</button></li>
+            <li class="nav-item"><button type="button" class="nav-link" data-level="3">第3级 通用元件</button></li>
+        </ul>
+        <div class="d-flex align-items-center gap-2">
+            <button id="add-item-btn" type="button" class="btn btn-sm btn-primary">
+                <i class="bi bi-plus-lg me-1"></i>新增
+            </button>
+            <button id="save-order-btn" type="button" class="btn btn-sm btn-outline-secondary" disabled>
+                <i class="bi bi-sort-down me-1"></i>保存顺序
+            </button>
+        </div>
+    </div>
+    <div id="page-info-bar" class="small text-muted mt-2"></div>
+    <div class="small text-muted mt-1">
+        提示：类型(x_lx)对齐汇总分类槽位(约 10 个)，新增超限类别将无法被汇总报表统计。器件为锁定项，固定首位、不可删除。
+    </div>
+</div>
+
+<div class="oa-card">
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0">
+            <thead>
+                <tr>
+                    <th style="width:90px">顺序</th>
+                    <th>名称</th>
+                    <th style="width:90px">类型(x_lx)</th>
+                    <th style="width:80px">数量</th>
+                    <th>规格型号</th>
+                    <th style="width:80px">单位</th>
+                    <th style="width:110px" class="oa-col-l3">挂载分类</th>
+                    <th style="width:90px" class="oa-col-l2">导入默认</th>
+                    <th style="width:80px">启用</th>
+                    <th style="width:150px">操作</th>
+                </tr>
+            </thead>
+            <tbody id="dict-tbody">
+                <tr><td colspan="10" class="text-center text-muted py-3">加载中…</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- 新增/编辑 Modal -->
+<div class="modal fade" id="item-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="item-modal-title">新增通用项</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="f-id" />
+                <input type="hidden" id="f-level" />
+                <div class="mb-2">
+                    <label class="form-label small mb-1">名称 <span class="text-danger">*</span></label>
+                    <input id="f-name" type="text" class="form-control form-control-sm" maxlength="50" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small mb-1">类型 x_lx <span class="text-danger">*</span></label>
+                    <input id="f-xlx" type="number" class="form-control form-control-sm" min="0" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small mb-1">数量（挂入时写入 x_sl） <span class="text-danger">*</span></label>
+                    <input id="f-amount" type="number" class="form-control form-control-sm" min="0" step="0.01" value="1" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small mb-1">规格型号（可空，挂入时写入 x_ggxh）</label>
+                    <input id="f-ggxh" type="text" class="form-control form-control-sm" maxlength="50" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small mb-1">单位（可空）</label>
+                    <input id="f-unit" type="text" class="form-control form-control-sm" maxlength="10" />
+                </div>
+                <div class="mb-2 oa-field-l3 d-none">
+                    <label class="form-label small mb-1">挂载分类（8位中间码，默认 0001 器件）</label>
+                    <input id="f-scope" type="text" class="form-control form-control-sm" maxlength="8" placeholder="0001" />
+                </div>
+                <div class="mb-2 form-check oa-field-l2">
+                    <input id="f-default" type="checkbox" class="form-check-input" />
+                    <label for="f-default" class="form-check-label small">导入控制柜时默认写入此项</label>
+                </div>
+                <div class="mb-2 form-check">
+                    <input id="f-enabled" type="checkbox" class="form-check-input" checked />
+                    <label for="f-enabled" class="form-check-label small">启用</label>
+                </div>
+                <div class="mb-0">
+                    <label class="form-label small mb-1">备注</label>
+                    <input id="f-remark" type="text" class="form-control form-control-sm" maxlength="300" />
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button id="save-item-btn" type="button" class="btn btn-sm btn-primary">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@Html.AntiForgeryToken()
+
+<div id="element-dict-config"
+     data-get-url="@getByLevelUrl"
+     data-create-url="@createUrl"
+     data-update-url="@updateUrl"
+     data-toggle-url="@toggleUrl"
+     data-reorder-url="@reorderUrl"></div>
+
+@section Scripts {
+    <script src="~/js/element-dict.js" asp-append-version="true"></script>
+}

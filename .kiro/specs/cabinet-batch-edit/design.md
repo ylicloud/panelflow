@@ -2,7 +2,7 @@
 
 ## Overview
 
-本功能是对 `/Quotation/MergeExcel` 页面的纯前端增强，为报价员提供批量编辑多个控制柜属性的能力。在现有目录树节点上增加勾选框，勾选后在目录树下方展示批量编辑面板，支持三类批量写入操作：壳体类型/尺寸设置、通用元件追加。所有写操作通过 Handsontable 的 `alter` / `setDataAtCell` API 完成，自动进入撤销栈，不引入任何新后端 API。
+本功能是对 `/Quotation/MergeExcel` 页面的纯前端增强，为报价员提供批量编辑多个控制柜属性的能力。在现有目录树节点上增加勾选框，勾选后在目录树下方展示批量编辑面板，支持壳体类型/尺寸批量写入。所有写操作通过 Handsontable 的 `alter` / `setDataAtCell` API 完成，自动进入撤销栈，不引入任何新后端 API。
 
 ### 核心流程
 
@@ -12,8 +12,6 @@
 批量编辑面板显示
   ↓ 填写壳体类型/尺寸 → 点击"应用壳体类型"
     → 计算 spec 字符串 → 遍历选中节点 → upsert 壳体行
-  ↓ 填写通用元件 → 点击"批量添加元件"
-    → 验证元件行 → 遍历选中节点 → append 元件行
   ↓ 每次写入后刷新目录树 + 更新信息栏
 ```
 
@@ -115,7 +113,7 @@ let selectedUnits = new Set();
 // DOM 引用（init() 时赋值）
 let bridge, panelEl, shellTypeSelect, customTypeInput,
     wInput, hInput, dInput,
-    componentTableBody, panelSelectedCount;
+    panelSelectedCount;
 ```
 
 #### 2.2 核心公开函数
@@ -129,11 +127,9 @@ let bridge, panelEl, shellTypeSelect, customTypeInput,
 | `onClearAllReset()` | `selectedUnits.clear()`，隐藏面板 |
 | `onTreeRebuilt()` | 重新绑定新 checkbox 的事件，保留已选状态 |
 | `applyShellType()` | 读取壳体类型+尺寸 → 验证 → 构造 spec 字符串 → 批量写入壳体行 |
-| `applyComponents()` | 读取元件表 → 验证 → 批量追加元件行 |
 | `buildSpecString(type, w, h, d)` | 纯函数：组合 spec 字符串 |
 | `findCabinetBlock(hot, unitNo)` | 纯函数：返回 `{headerRow, endRow}` |
 | `upsertShellRow(hot, headerRow, endRow, spec)` | 执行 upsert 壳体行（undo 兼容） |
-| `appendComponentRows(hot, endRow, components)` | 执行追加元件行（undo 兼容） |
 | `updatePanelVisibility()` | 根据 `selectedUnits.size` 显示/隐藏面板，更新计数 |
 | `rebindCheckboxEvents()` | 重新绑定 DOM 中所有 `.oa-unit-checkbox` 的事件 |
 
@@ -164,28 +160,6 @@ CabinetBlock {
 | 非空 | 均无效/空 | `"{type}"` |
 | 空 | 三项均有效 | `"{w}W×{h}H×{d}Dmm"` |
 | 空 | 均无效/空 | `null`（验证拒绝） |
-
-### Component Row（通用元件行）
-
-编辑器每行对应一个对象（仅内存中）：
-
-```
-ComponentEntry {
-  name:   string   // col[2] 名称
-  spec:   string   // col[3] 规格
-  price:  string   // col[4] 单价（空字符串允许）
-  qty:    string   // col[5] 数量（必须为非负数字）
-  vendor: string   // col[6] 生产厂家
-}
-```
-
-写入表格时的列映射（8 列）：
-
-```
-[0: "",  1: "",  2: name,  3: spec,  4: price,  5: qty,  6: vendor,  7: ""]
-```
-
----
 
 ## Handsontable Manipulation Patterns
 
@@ -225,27 +199,6 @@ else:
 ```
 
 > **重要**：`alter('insert_row_above', ...)` 执行后，原 `headerRow` 以下的所有行号 +1，后续操作需重新调用 `findCabinetBlock()` 或对行号做偏移修正（批量处理时从最后一个控制柜向前处理，避免行号漂移）。
-
-### Pattern B：Append 通用元件行
-
-```
-findCabinetBlock(hot, unitNo)
-  → {headerRow, endRow}
-
-insertAt = endRow + 1
-for each component in validComponents:
-  hot.alter('insert_row_above', insertAt, 1)
-  hot.setDataAtCell([
-    [insertAt, 2, component.name],
-    [insertAt, 3, component.spec],
-    [insertAt, 4, component.price || ""],
-    [insertAt, 5, component.qty],
-    [insertAt, 6, component.vendor],
-  ])
-  insertAt += 1
-```
-
-> 同样存在行号漂移问题，批量时从后向前处理各控制柜块。
 
 ### 批量操作中的行号漂移处理策略
 
@@ -320,39 +273,6 @@ for (const unit of sortedUnits) {
       </button>
     </div>
   </div>
-
-  <!-- 通用元件 区域 -->
-  <div class="oa-batch-section mt-3">
-    <button type="button" class="oa-batch-section-toggle btn btn-sm btn-link px-0 py-0 mb-1 text-start w-100"
-            data-target="component-section-body" aria-expanded="true">
-      <i class="bi bi-chevron-down me-1 oa-toggle-icon"></i>通用元件
-    </button>
-    <div id="component-section-body" class="oa-batch-section-body">
-      <div class="oa-component-editor mb-2">
-        <table class="table table-sm table-bordered oa-component-table mb-1">
-          <thead>
-            <tr>
-              <th class="small">名称</th>
-              <th class="small">规格</th>
-              <th class="small" style="width:52px">数量</th>
-              <th class="small" style="width:60px">单价</th>
-              <th class="small">厂家</th>
-              <th style="width:28px"></th>
-            </tr>
-          </thead>
-          <tbody id="component-editor-body">
-            <!-- 由 JS 动态生成行 -->
-          </tbody>
-        </table>
-        <button id="add-component-row-btn" type="button" class="btn btn-sm btn-outline-secondary w-100">
-          <i class="bi bi-plus me-1"></i>添加元件行
-        </button>
-      </div>
-      <button id="apply-components-btn" type="button" class="btn btn-sm btn-success w-100">
-        <i class="bi bi-list-check me-1"></i>批量添加元件
-      </button>
-    </div>
-  </div>
 </div>
 ```
 
@@ -388,8 +308,7 @@ for (const unit of sortedUnits) {
   let panelEl, batchCountEl,
       shellTypeSelect, customTypeWrapper, customTypeInput,
       dimW, dimH, dimD,
-      applyShellBtn,
-      componentEditorBody, addComponentRowBtn, applyComponentsBtn;
+      applyShellBtn;
 
   // ── 初始化 ────────────────────────────────────────
   function init() {
@@ -406,17 +325,12 @@ for (const unit of sortedUnits) {
     dimH              = document.getElementById('dim-h-input');
     dimD              = document.getElementById('dim-d-input');
     applyShellBtn     = document.getElementById('apply-shell-btn');
-    componentEditorBody   = document.getElementById('component-editor-body');
-    addComponentRowBtn    = document.getElementById('add-component-row-btn');
-    applyComponentsBtn    = document.getElementById('apply-components-btn');
 
     if (!panelEl) return;
 
     // 绑定静态元素事件
     shellTypeSelect.addEventListener('change', onShellTypeChange);
     applyShellBtn.addEventListener('click', applyShellType);
-    addComponentRowBtn.addEventListener('click', addComponentEditorRow);
-    applyComponentsBtn.addEventListener('click', applyComponents);
 
     // 折叠/展开
     document.querySelectorAll('.oa-batch-section-toggle').forEach(btn => {
@@ -426,9 +340,6 @@ for (const unit of sortedUnits) {
     // Bridge 回调
     bridge.onClearAll(onClearAllReset);
     bridge.onTreeRebuilt(onTreeRebuilt);
-
-    // 添加初始元件行
-    addComponentEditorRow();
   }
 
   // ── Checkbox 管理 ────────────────────────────────
@@ -573,22 +484,6 @@ for (const unit of sortedUnits) {
     }
   }
 
-  // ── Append 元件行 ────────────────────────────────
-  function appendComponentRows(hot, endRow, components) {
-    let insertAt = endRow + 1;
-    for (const comp of components) {
-      hot.alter('insert_row_above', insertAt, 1);
-      hot.setDataAtCell([
-        [insertAt, 2, comp.name],
-        [insertAt, 3, comp.spec],
-        [insertAt, 4, comp.price || ''],
-        [insertAt, 5, comp.qty],
-        [insertAt, 6, comp.vendor || ''],
-      ]);
-      insertAt++;
-    }
-  }
-
   // ── 应用壳体类型 ─────────────────────────────────
   function applyShellType() {
     if (!bridge || !bridge.isDataLoaded()) {
@@ -654,89 +549,6 @@ for (const unit of sortedUnits) {
     }
   }
 
-  // ── 通用元件编辑器 ───────────────────────────────
-  function addComponentEditorRow() {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td><input type="text" class="form-control form-control-sm comp-name" placeholder="名称" /></td>
-      <td><input type="text" class="form-control form-control-sm comp-spec" placeholder="规格" /></td>
-      <td><input type="number" class="form-control form-control-sm comp-qty" min="0" placeholder="数量" /></td>
-      <td><input type="text" class="form-control form-control-sm comp-price" placeholder="单价" /></td>
-      <td><input type="text" class="form-control form-control-sm comp-vendor" placeholder="厂家" /></td>
-      <td>
-        <button type="button" class="btn btn-sm btn-outline-danger oa-del-comp-row" title="删除此行">
-          <i class="bi bi-x"></i>
-        </button>
-      </td>`;
-    tr.querySelector('.oa-del-comp-row').addEventListener('click', () => tr.remove());
-    componentEditorBody.appendChild(tr);
-  }
-
-  function readComponentRows() {
-    const rows = [];
-    componentEditorBody.querySelectorAll('tr').forEach(tr => {
-      const name   = tr.querySelector('.comp-name')?.value.trim() || '';
-      const spec   = tr.querySelector('.comp-spec')?.value.trim() || '';
-      const qty    = tr.querySelector('.comp-qty')?.value.trim() || '';
-      const price  = tr.querySelector('.comp-price')?.value.trim() || '';
-      const vendor = tr.querySelector('.comp-vendor')?.value.trim() || '';
-      rows.push({ name, spec, qty, price, vendor, _el: tr });
-    });
-    return rows;
-  }
-
-  function applyComponents() {
-    if (!bridge || !bridge.isDataLoaded()) {
-      bridge && bridge.setMessage('请先合并 Excel 文件', true); return;
-    }
-    if (selectedUnits.size === 0) {
-      bridge.setMessage('请先选中至少一个控制柜节点', true); return;
-    }
-
-    const allRows = readComponentRows();
-    // 过滤空行
-    const validRows = allRows.filter(r => r.name || r.spec);
-
-    if (validRows.length === 0) {
-      bridge.setMessage('没有有效的元件可添加', true); return;
-    }
-
-    // 验证数量
-    let hasError = false;
-    for (const row of validRows) {
-      if (row.qty === '') {
-        bridge.setMessage('元件数量不能为空', true); hasError = true; break;
-      }
-      const qv = Number(row.qty);
-      if (!Number.isFinite(qv) || qv < 0) {
-        bridge.setMessage('元件数量必须为非负数', true); hasError = true; break;
-      }
-    }
-    if (hasError) return;
-
-    const hot = bridge.getHot();
-    const sortedUnits = [...selectedUnits]
-      .map(unitNo => ({ unitNo, ...findCabinetBlock(hot, unitNo) }))
-      .filter(u => u.headerRow !== -1)
-      .sort((a, b) => b.headerRow - a.headerRow);
-
-    if (sortedUnits.length === 0) {
-      bridge.setMessage('未找到选中控制柜对应的表格行', true); return;
-    }
-
-    try {
-      for (const unit of sortedUnits) {
-        appendComponentRows(hot, unit.endRow, validRows);
-      }
-      bridge.setMessage(
-        `已为 ${sortedUnits.length} 个控制柜追加 ${validRows.length} 条通用元件行`,
-        false
-      );
-    } catch (err) {
-      bridge.setMessage(`追加元件行失败：${err.message || err}`, true);
-    }
-  }
-
   // ── 启动 ─────────────────────────────────────────
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
@@ -774,29 +586,6 @@ for (const unit of sortedUnits) {
                                    ↓ rebindCheckboxEvents() 恢复选中状态
 ```
 
-### Flow 2：通用元件追加
-
-```
-用户操作                          JS 执行
-─────────────────────────────────────────────────────
-填写元件编辑器各行
-点击"批量添加元件"
-                                 applyComponents()
-                                   ↓ readComponentRows() → allRows
-                                   ↓ filter(r => r.name || r.spec) → validRows
-                                   ↓ 验证 qty 字段
-                                   ↓ [...selectedUnits].sort(desc by headerRow)
-                                   ↓ for each unit:
-                                       findCabinetBlock(hot, unitNo) → {headerRow, endRow}
-                                       appendComponentRows(hot, endRow, validRows)
-                                         ↓ for each comp:
-                                             alter('insert_row_above', insertAt)
-                                             setDataAtCell([name, spec, price, qty, vendor])
-                                             insertAt++
-                                   ↓ bridge.setMessage(摘要)
-                                   ↓ 目录树自动刷新
-```
-
 ---
 
 ## Error Handling
@@ -808,9 +597,6 @@ for (const unit of sortedUnits) {
 | 壳体类型和尺寸均为空 | 提示"请先选择或填写壳体类型" |
 | 选择"其他"但自定义文本为空 | 提示"请填写自定义壳体类型名称" |
 | 尺寸输入非整数或超出 1–9999 | 输入框标红（`is-invalid`），提示"尺寸必须为正整数（1–9999）" |
-| 元件数量为空 | 提示"元件数量不能为空" |
-| 元件数量为负数或非数字 | 提示"元件数量必须为非负数" |
-| 有效元件行数为 0 | 提示"没有有效的元件可添加" |
 | `findCabinetBlock` 返回 `headerRow=-1` | 跳过该节点，仅统计有效处理数量；若全部跳过则提示"未找到选中控制柜对应的表格行" |
 | JS 运行时异常 | `try/catch` 捕获，提示"写入XX失败：{errorMessage}"，不写入任何行 |
 
@@ -824,12 +610,11 @@ for (const unit of sortedUnits) {
 
 - `buildSpecString()` 各输入组合返回正确字符串（type+dims、type-only、dims-only、均空）
 - `findCabinetBlock()` 在各种数据布局下正确返回 `{headerRow, endRow}`
-- 验证逻辑：无效尺寸、空数量、负数量各返回正确错误状态
+- 验证逻辑：无效尺寸各返回正确错误状态
 
 ### 集成测试（Example-based）
 
 - 在模拟 Handsontable 数据上执行 upsert 壳体行，验证结果行位置和内容
-- 在模拟数据上执行追加元件行，验证末尾行数量和列值
 - 多柜块同时操作，验证行号漂移处理正确（后处理前面的柜块数据不受影响）
 
 ### Property-Based Tests
@@ -842,7 +627,6 @@ for (const unit of sortedUnits) {
 
 - 批量编辑面板宽度继承父容器（`#price-tree-pane`），最小 220px，最大 60vw，无固定像素宽度
 - 柜体尺寸三个输入框使用 `d-flex gap-1`，`flex: 1` 均分，`min-width: 0` 防止溢出
-- 通用元件表格在移动端使用 `overflow-x: auto` 包裹，允许横向滚动（仅表格内部，不影响外层）
 - 折叠/展开按钮最小触摸区域 ≥ 44×44px（Bootstrap btn-sm 已满足）
 - 不使用绝对定位或 `position: fixed` 浮层，面板随树面板滚动
 - `env(safe-area-inset-bottom)` 在 `.oa-batch-panel` 底部 padding 中引用：
@@ -878,22 +662,6 @@ for (const unit of sortedUnits) {
 }
 .oa-batch-section-toggle:hover { color: #0d6efd; }
 
-/* 元件编辑器表格：移动端横向可滚动 */
-.oa-component-editor {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-}
-
-.oa-component-table {
-  min-width: 380px;
-  font-size: 0.78rem;
-}
-
-.oa-component-table input {
-  min-width: 0;
-  padding: 2px 4px;
-}
-
 /* checkbox 与 tree-node-link 同行对齐 */
 .oa-unit-checkbox {
   cursor: pointer;
@@ -915,7 +683,6 @@ for (const unit of sortedUnits) {
 
 @media (max-width: 768px) {
   .oa-batch-panel { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
-  .oa-component-table { font-size: 0.72rem; }
 }
 ```
 
@@ -987,36 +754,8 @@ The following properties focus on the pure-function and data-manipulation logic 
 
 ---
 
-### Property 7: Empty-name-and-spec component rows are always filtered
+### Property 7: Batch shell operation always emits a result message
 
-*For any* list of `ComponentEntry` objects, the set of valid rows produced by the filter `r => r.name || r.spec` never contains a row where both `name` and `spec` are empty strings (after trimming).
+*For any* valid invocation of `applyShellType()` that does not throw (i.e., passes all input validation, finds at least one cabinet block, and completes row writes), `bridge.setMessage` is called exactly once with `isError = false` and a message string containing the number of affected cabinets.
 
-**Validates: Requirements 4.3**
-
----
-
-### Property 8: Invalid quantity values are always rejected
-
-*For any* `ComponentEntry` where `qty` is a negative number, a non-numeric string, or `NaN`, the quantity validation function returns `false` (invalid). For any `qty` that is a non-negative finite number (including `0`), it returns `true` (valid).
-
-**Validates: Requirements 4.4, 4.5**
-
----
-
-### Property 9: `appendComponentRows` appends exactly the valid components to block end
-
-*For any* simulated grid representing a cabinet block with `endRow` at position E, and *for any* list of `k` valid `ComponentEntry` objects, after calling `appendComponentRows(hot, E, components)`:
-- The total row count increases by exactly `k`
-- Rows at positions `E+1` through `E+k` contain the component data in order
-- Each appended row maps fields to columns: `col[2]=name`, `col[3]=spec`, `col[4]=price`, `col[5]=qty`, `col[6]=vendor`
-- Rows before position `E+1` are unchanged
-
-**Validates: Requirements 4.7, 4.8**
-
----
-
-### Property 10: Batch operations always emit a result message
-
-*For any* valid invocation of `applyShellType()` or `applyComponents()` that does not throw (i.e., passes all input validation, finds at least one cabinet block, and completes row writes), `bridge.setMessage` is called exactly once with `isError = false` and a message string containing the number of affected cabinets.
-
-**Validates: Requirements 5.1**
+**Validates: Requirements 4.1**

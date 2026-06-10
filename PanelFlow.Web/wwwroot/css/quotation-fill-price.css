@@ -1,0 +1,452 @@
+/* ============================================================
+ * quotation-fill-price.css
+ * 报价填价页面（Quotation/FillPrice）专属样式
+ * ============================================================ */
+
+/* ---------- 紧凑工作区 Layout（_LayoutFillPrice） ---------- */
+:root {
+    --oa-topbar-height-compact: 40px;
+}
+
+.oa-layout-workspace .oa-topbar--compact {
+    height: var(--oa-topbar-height-compact);
+    padding: 0 0.75rem;
+}
+
+.oa-layout-workspace .oa-workspace-title {
+    max-width: 40vw;
+}
+
+.oa-layout-workspace {
+    overflow: hidden;
+}
+
+.oa-layout-workspace .oa-main {
+    height: 100vh;
+    overflow: hidden;
+}
+
+.oa-content--workspace {
+    padding: 0.5rem 0.75rem;
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - var(--oa-topbar-height-compact));
+    overflow: hidden;
+}
+
+/* ---------- 页面骨架 ---------- */
+.oa-fill-page {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.oa-fill-toolbar {
+    flex-shrink: 0;
+    margin-bottom: 0.35rem !important;
+}
+
+.oa-card--compact {
+    padding: 0.5rem 0.75rem;
+}
+
+.oa-fill-toolbar__row {
+    gap: 0.35rem 0.5rem;
+}
+
+.oa-fill-toolbar__status {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    font-size: 0.8rem;
+}
+
+.oa-fill-message {
+    flex: 1 1 180px;
+    min-width: 0;
+    font-size: 0.78rem;
+    line-height: 1.35;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    border-left: 3px solid transparent;
+    background: #f8f9fa;
+    color: #495057;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.oa-fill-message--info {
+    border-left-color: #0dcaf0;
+    background: #e8f7fb;
+    color: #055160;
+}
+
+.oa-fill-message--success {
+    border-left-color: #198754;
+    background: #d1e7dd;
+    color: #0a3622;
+}
+
+.oa-fill-message--error {
+    border-left-color: #dc3545;
+    background: #f8d7da;
+    color: #842029;
+}
+
+#color-legend {
+    margin-top: 0.35rem !important;
+    padding-top: 0.35rem !important;
+    gap: 0.5rem 0.75rem !important;
+    font-size: 0.75rem;
+}
+
+/* ---------- 双栏工作区 ---------- */
+.price-workspace {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    flex: 1 1 0;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.price-tree-pane {
+    width: 32%;
+    min-width: 220px;
+    max-width: 60%;
+    min-height: 0;
+    transition: width 0.15s ease;
+    overflow: hidden;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.oa-card--tree {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0;
+    min-height: 0;
+    height: 100%;
+    max-height: 100%;
+    overflow: hidden;
+}
+
+.price-tree-header {
+    flex: 0 0 auto;
+    margin-bottom: 0.25rem;
+}
+
+.price-tree-scroll {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+}
+
+.price-tree-pane.is-collapsed {
+    display: none;
+}
+
+.price-splitter {
+    width: 8px;
+    cursor: col-resize;
+    background: linear-gradient(to right, transparent 2px, #dee2e6 2px, #dee2e6 6px, transparent 6px);
+    user-select: none;
+    flex-shrink: 0;
+}
+
+.price-splitter.is-hidden {
+    display: none;
+}
+
+.price-table-pane {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.price-table-pane > .oa-card {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    height: 100%;
+}
+
+.price-table-pane #hot-container {
+    flex: 1 1 auto;
+    min-height: 240px;
+}
+
+/* ---------- 目录树 ---------- */
+.tree-node-link {
+    border: 0;
+    background: transparent;
+    padding: 2px 4px;
+    color: inherit;
+    text-align: left;
+    width: 100%;
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+.tree-node-link:hover {
+    color: #0d6efd;
+    background-color: #f4f8ff;
+}
+
+.tree-node-link-usage {
+    color: #0d6efd;
+    font-weight: 700;
+    background-color: #e7f1ff;
+}
+
+.tree-node-link-selected {
+    color: #fff !important;
+    font-weight: 700;
+    background-color: #0d6efd !important;
+}
+
+.tree-node-link-selected:hover {
+    color: #fff !important;
+    background-color: #0b5ed7 !important;
+}
+
+/* ---------- Handsontable 着色 ---------- */
+.ht-ref-price-header {
+    background-color: #d1e7dd !important;
+    color: #0a3622 !important;
+    font-weight: 600;
+}
+
+.ht-amount-header {
+    background-color: #d6eaf8 !important;
+    color: #1b4f72 !important;
+    font-weight: 600;
+}
+
+.unsaved-badge {
+    display: none;
+    color: #dc3545;
+    font-weight: 600;
+    font-size: 0.8rem;
+}
+
+.unsaved-badge.is-visible {
+    display: inline;
+}
+
+.ht-price-empty {
+    background-color: #f0f0f0 !important;
+}
+
+.ht-price-negative {
+    background-color: #f8d7da !important;
+}
+
+.ht-price-deviation {
+    background-color: #fff3cd !important;
+}
+
+.legend-swatch {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 1px solid #ced4da;
+    border-radius: 2px;
+    vertical-align: middle;
+    margin-right: 4px;
+}
+
+.legend-swatch.sw-empty { background-color: #f0f0f0; }
+.legend-swatch.sw-negative { background-color: #f8d7da; }
+.legend-swatch.sw-deviation { background-color: #fff3cd; }
+.legend-swatch.sw-ref { background-color: #d1e7dd; }
+.legend-swatch.sw-amount { background-color: #d6eaf8; }
+
+/* ---------- 控制柜拖拽排序 ---------- */
+#tree-children-container li[draggable="true"] {
+    cursor: grab;
+    transition: opacity 0.15s ease;
+}
+
+#tree-children-container li[draggable="true"]:active {
+    cursor: grabbing;
+}
+
+#tree-children-container li.drag-source {
+    opacity: 0.4;
+}
+
+#tree-children-container li.drag-over-top {
+    border-top: 2px solid #0d6efd;
+}
+
+#tree-children-container li.drag-over-bottom {
+    border-bottom: 2px solid #0d6efd;
+}
+
+/* ---------- 进度看板 ---------- */
+#fill-progress-badge .progress-chip {
+    font-size: 0.75rem;
+    padding: 0.2rem 0.45rem;
+}
+
+#fill-progress-badge .progress-chip.is-error {
+    background-color: #f8d7da !important;
+    color: #842029 !important;
+    border-color: #f5c2c7 !important;
+}
+
+#fill-progress-badge #problem-list-toggle:disabled {
+    opacity: 0.55;
+}
+
+/* ---------- 右侧抽屉（问题清单 + 使用控制柜） ---------- */
+.oa-side-drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 380px;
+    max-width: 100vw;
+    background: #fff;
+    box-shadow: -2px 0 12px rgba(0, 0, 0, 0.12);
+    z-index: 1045;
+    display: flex;
+    flex-direction: column;
+}
+
+.oa-side-drawer .drawer-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.15);
+    z-index: -1;
+}
+
+.oa-side-drawer .drawer-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.6rem 0.85rem;
+    border-bottom: 1px solid #dee2e6;
+    flex-shrink: 0;
+}
+
+.oa-side-drawer .drawer-subtitle {
+    flex-shrink: 0;
+}
+
+.oa-side-drawer .drawer-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0.5rem 0.85rem 0.85rem;
+    min-height: 0;
+}
+
+.oa-side-drawer .drawer-footer {
+    padding: 0.45rem 0.85rem;
+    border-top: 1px solid #dee2e6;
+    background: #f8f9fa;
+    font-size: 0.78rem;
+    color: #6c757d;
+    flex-shrink: 0;
+}
+
+/* ---------- 问题清单 ---------- */
+.problem-list-group {
+    margin-bottom: 0.75rem;
+}
+
+.problem-list-group .group-header {
+    font-weight: 600;
+    color: #0d6efd;
+    padding: 0.25rem 0;
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.problem-list-group .group-header:hover {
+    background-color: #f4f8ff;
+    border-radius: 4px;
+    padding: 0.25rem 0.5rem;
+}
+
+.problem-list-group .group-items {
+    list-style: none;
+    padding-left: 0;
+    margin-bottom: 0;
+}
+
+.problem-list-item {
+    padding: 0.35rem 0.5rem;
+    border-left: 3px solid transparent;
+    cursor: pointer;
+    font-size: 0.8rem;
+    border-radius: 3px;
+}
+
+.problem-list-item:hover {
+    background-color: #f4f8ff;
+}
+
+.problem-list-item .issue-badge {
+    display: inline-block;
+    min-width: 52px;
+    padding: 0 0.35rem;
+    font-size: 0.7rem;
+    line-height: 1.4;
+    border-radius: 3px;
+    margin-right: 0.35rem;
+    vertical-align: middle;
+}
+
+.problem-list-item .issue-badge.issue-negative { background-color: #f8d7da; color: #842029; }
+.problem-list-item .issue-badge.issue-zero_price { background-color: #f0f0f0; color: #495057; }
+.problem-list-item .issue-badge.issue-deviation { background-color: #fff3cd; color: #664d03; }
+.problem-list-item .issue-badge.issue-missing_spec { background-color: #e7f1ff; color: #084298; }
+
+/* ---------- 使用控制柜抽屉 ---------- */
+.usage-list-item {
+    padding: 0.4rem 0.5rem;
+    border-left: 3px solid transparent;
+    cursor: pointer;
+    font-size: 0.8rem;
+    border-radius: 3px;
+    margin-bottom: 0.15rem;
+}
+
+.usage-list-item:hover {
+    background-color: #f4f8ff;
+    border-left-color: #0d6efd;
+}
+
+/* ---------- 行高亮闪烁 ---------- */
+@keyframes hot-row-flash {
+    0% { background-color: #fff3cd; }
+    100% { background-color: transparent; }
+}
+
+.hot-row-flash {
+    animation: hot-row-flash 2s ease-out;
+}
+
+@media (max-width: 768px) {
+    .oa-side-drawer {
+        width: 100vw;
+    }
+
+    .oa-fill-message {
+        white-space: normal;
+    }
+}

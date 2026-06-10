@@ -29,13 +29,12 @@
   - `1` -> 文字「(无内容)」：空报价单，尚无任何有效报价内容
   - `10` -> 已成立（绿色高亮）
   - 其他数值：原样显示数字
-- “修改”按钮显示条件：
-  - `BJFAT.bjr == 当前登录用户名`
-  - `BJFAT.dqzt !== 10`
-- “删除”按钮显示条件（同时满足）：
-  - `BJFAT.bjr == 当前登录用户名`
-  - `BJFAT.dqzt !== 10`
-- “报价”按钮（维护单价 / `BJB` 明细入口）显示条件：与“修改”“删除”相同（`bjr` 为本人且 `dqzt !== 10`）；跳转 `QuotationController.Price()` → `GET /Quotation/Price?id={fabh}`，明细编辑能力按需迭代
+- “修改”“删除”“报价”按钮显示条件（三者相同，代码统一）：
+  - `QuotationEditRules.CanOwnerOperate(bjr, dqzt, 当前登录用户名)` 为真
+  - 等价于：`BJFAT.bjr` 与当前用户一致（忽略大小写、trim）且 `BJFAT.dqzt !== 10`（`EstablishedStatus`）
+  - 实现：`PanelFlow.Core/Rules/QuotationEditRules.cs`；服务端校验见 `QuotationService.ValidateEditAccess`
+- “报价”按钮跳转 `QuotationController.Price()` → `GET /Quotation/Price?id={fabh}`，明细编辑能力按需迭代
+- 结构维护页 `SearchQuotations` 检索下拉：同样仅返回 `CanOwnerOperate` 为真的报价单（`WhereOwnerOperable` 扩展）；写操作另含管理员例外，见 `quotation-element-maintenance` 需求 8.2
 
 ## 3. 新建逻辑
 

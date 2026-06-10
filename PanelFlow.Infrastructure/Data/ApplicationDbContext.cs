@@ -18,6 +18,8 @@ public class ApplicationDbContext : DbContext
     public DbSet<BjfatQuotation> BjfatQuotations { get; set; }
     public DbSet<BjbItem> BjbItems { get; set; }
     public DbSet<StdPriceHistory> StdPriceHistories { get; set; }
+    public DbSet<StdPriceExclusion> StdPriceExclusions { get; set; }
+    public DbSet<StdElementDict> StdElementDicts { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -156,14 +158,15 @@ public class ApplicationDbContext : DbContext
             entity.HasNoKey();
             entity.Property(e => e.fabh).HasColumnName("fabh").HasColumnType("char(20)");
             entity.Property(e => e.x_bm).HasColumnName("x_bm").HasColumnType("char(100)");
-            entity.Property(e => e.x_mc).HasColumnName("x_mc").HasColumnType("char(100)");
-            entity.Property(e => e.x_ggxh).HasColumnName("x_ggxh").HasColumnType("char(100)");
+            entity.Property(e => e.x_mc).HasColumnName("x_mc").HasColumnType("char(50)");
+            entity.Property(e => e.x_ggxh).HasColumnName("x_ggxh").HasColumnType("char(50)");
             entity.Property(e => e.x_dw).HasColumnName("x_dw").HasColumnType("char(10)");
             entity.Property(e => e.x_dj).HasColumnName("x_dj").HasColumnType("numeric(18,4)");
             entity.Property(e => e.x_bj_dj).HasColumnName("x_bj_dj").HasColumnType("numeric(18,4)");
             entity.Property(e => e.x_sl).HasColumnName("x_sl").HasColumnType("numeric(18,4)");
             entity.Property(e => e.x_fdds).HasColumnName("x_fdds").HasColumnType("numeric(18,4)");
-            entity.Property(e => e.x_sccj).HasColumnName("x_sccj").HasColumnType("char(20)");
+            entity.Property(e => e.x_sccj).HasColumnName("x_sccj").HasColumnType("char(50)");
+            entity.Property(e => e.x_wzdh).HasColumnName("x_wzdh").HasColumnType("char(100)");
             entity.Property(e => e.x_bjb_dj).HasColumnName("x_bjb_dj").HasColumnType("numeric(18,4)");
             entity.Property(e => e.x_bjb_bj).HasColumnName("x_bjb_bj").HasColumnType("numeric(18,4)");
             entity.Property(e => e.x_lx).HasColumnName("x_lx");
@@ -180,6 +183,40 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.avg_price).HasColumnType("decimal(18,4)");
             entity.Property(e => e.min_price).HasColumnType("decimal(18,4)");
             entity.Property(e => e.max_price).HasColumnType("decimal(18,4)");
+        });
+
+        modelBuilder.Entity<StdPriceExclusion>(entity =>
+        {
+            entity.ToTable("STD_PRICE_EXCLUSION");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entity.Property(e => e.fabh).HasColumnName("fabh").HasColumnType("varchar(50)").IsRequired();
+            entity.Property(e => e.x_wzdh).HasColumnName("x_wzdh").HasColumnType("nvarchar(400)");
+            entity.Property(e => e.reason).HasColumnName("reason").HasColumnType("nvarchar(500)");
+            entity.Property(e => e.created_by).HasColumnName("created_by").HasColumnType("nvarchar(50)");
+            entity.Property(e => e.created_at).HasColumnName("created_at").HasColumnType("datetime");
+        });
+
+        modelBuilder.Entity<StdElementDict>(entity =>
+        {
+            entity.ToTable("STD_ELEMENT_DICT");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id).HasColumnName("Id").ValueGeneratedOnAdd();
+            entity.Property(e => e.Level).HasColumnName("Level");
+            entity.Property(e => e.Name).HasColumnName("Name").HasColumnType("nvarchar(50)").IsRequired();
+            entity.Property(e => e.Xlx).HasColumnName("Xlx");
+            entity.Property(e => e.Amount).HasColumnName("Amount").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.Ggxh).HasColumnName("Ggxh").HasColumnType("nvarchar(50)");
+            entity.Property(e => e.DefaultUnit).HasColumnName("DefaultUnit").HasColumnType("nvarchar(10)");
+            entity.Property(e => e.TargetParentScope).HasColumnName("TargetParentScope").HasColumnType("nvarchar(8)");
+            entity.Property(e => e.SortOrder).HasColumnName("SortOrder");
+            entity.Property(e => e.IsDefaultOnImport).HasColumnName("IsDefaultOnImport");
+            entity.Property(e => e.IsEnabled).HasColumnName("IsEnabled");
+            entity.Property(e => e.IsLocked).HasColumnName("IsLocked");
+            entity.Property(e => e.Remark).HasColumnName("Remark").HasColumnType("nvarchar(300)");
+            entity.Property(e => e.UpdatedAt).HasColumnName("UpdatedAt").HasColumnType("datetime2");
+            entity.Property(e => e.UpdatedBy).HasColumnName("UpdatedBy").HasColumnType("nvarchar(50)");
         });
     }
 }

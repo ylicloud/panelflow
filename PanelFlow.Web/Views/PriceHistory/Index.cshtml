@@ -1,0 +1,159 @@
+@{
+    ViewData["Title"] = "历史价格维护";
+    var listUrl = Url.Action("List", "PriceHistory") ?? string.Empty;
+    var sourceRowsUrl = Url.Action("SourceRows", "PriceHistory") ?? string.Empty;
+    var excludeUrl = Url.Action("Exclude", "PriceHistory") ?? string.Empty;
+    var removeExclusionUrl = Url.Action("RemoveExclusion", "PriceHistory") ?? string.Empty;
+    var exclusionsUrl = Url.Action("Exclusions", "PriceHistory") ?? string.Empty;
+    var refreshUrl = Url.Action("Refresh", "PriceHistory") ?? string.Empty;
+    var updateUrl = Url.Action("UpdateAttributes", "PriceHistory") ?? string.Empty;
+    var batchUpdateUrl = Url.Action("BatchUpdateAttributes", "PriceHistory") ?? string.Empty;
+}
+
+<link rel="stylesheet" href="~/lib/handsontable/handsontable.full.min.css" />
+<link rel="stylesheet" href="~/css/price-history-maintain.css" asp-append-version="true" />
+
+<div class="oa-card mb-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <ul class="nav nav-pills" id="main-tabs">
+            <li class="nav-item">
+                <button type="button" class="nav-link active" data-tab="history">历史价格</button>
+            </li>
+            <li class="nav-item">
+                <button type="button" class="nav-link" data-tab="exclusions">剔除清单</button>
+            </li>
+        </ul>
+        <div class="d-flex flex-wrap align-items-center gap-2" id="history-toolbar">
+            <input id="search-input" type="search" class="form-control form-control-sm oa-ph-search"
+                   placeholder="搜索型号/名称/单位/厂商/方案号…" />
+            <div class="form-check form-switch mb-0">
+                <input class="form-check-input" type="checkbox" id="only-suspect" />
+                <label class="form-check-label small" for="only-suspect">只看疑似异常</label>
+            </div>
+            <button id="refresh-sp-btn" type="button" class="btn btn-sm btn-primary">
+                <i class="bi bi-arrow-repeat me-1"></i>重新生成历史价格
+            </button>
+        </div>
+    </div>
+    <div class="d-flex flex-wrap align-items-center gap-2 mt-2" id="batch-toolbar">
+        <span class="small text-muted">批量设置（当前筛选结果）：</span>
+        <input id="batch-dw-input" type="text" class="form-control form-control-sm oa-ph-batch-field"
+               maxlength="10" placeholder="单位" />
+        <input id="batch-sccj-input" type="text" class="form-control form-control-sm oa-ph-batch-field"
+               maxlength="100" placeholder="厂商" />
+        <button id="batch-apply-btn" type="button" class="btn btn-sm btn-outline-primary">
+            应用到搜索结果
+        </button>
+    </div>
+    <div id="page-info-bar" class="small text-muted mt-2"></div>
+    <div class="small text-muted mt-1">
+        异常判定：最新价偏离均价超过 20%（低价元件如端子、保险丝只要均价与最新价接近即视为正常）。
+        剔除异常来源后请点击「重新生成历史价格」刷新聚合表；不修改已成立报价单的 BJB 原始数据。
+        单位、厂商可直接在表格中编辑；已填写的单位/厂商在重新生成时不会被 BJB 来源覆盖。
+    </div>
+</div>
+
+<div class="oa-card" id="history-panel">
+    <div id="history-hot-container"
+         data-license-key="53ea8-c2678-49b80-cb40f-4dad4"></div>
+    <div class="d-flex justify-content-between align-items-center mt-2 px-1">
+        <span id="history-pager-info" class="small text-muted"></span>
+        <div class="btn-group btn-group-sm">
+            <button type="button" class="btn btn-outline-secondary" id="prev-page-btn" disabled>上一页</button>
+            <button type="button" class="btn btn-outline-secondary" id="next-page-btn" disabled>下一页</button>
+        </div>
+    </div>
+</div>
+
+<div class="oa-card d-none" id="exclusions-panel">
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0">
+            <thead>
+                <tr>
+                    <th>方案编号</th>
+                    <th>剔除范围</th>
+                    <th>型号指纹</th>
+                    <th>理由</th>
+                    <th>操作人</th>
+                    <th>时间</th>
+                    <th style="width:90px">操作</th>
+                </tr>
+            </thead>
+            <tbody id="exclusions-tbody">
+                <tr><td colspan="7" class="text-center text-muted py-3">加载中…</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- 来源下钻 Modal -->
+<div class="modal fade" id="source-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="source-modal-title">价格来源</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <div id="source-chart-wrap" class="d-none mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <span class="small text-muted">价格趋势（按报价时间，样本数 ≥ 2 时显示）</span>
+                        <span class="small text-muted" id="source-chart-legend"></span>
+                    </div>
+                    <div id="source-chart" class="oa-ph-trend-chart" aria-hidden="true"></div>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small mb-1">剔除理由 <span class="text-danger">*</span></label>
+                    <input id="exclude-reason" type="text" class="form-control form-control-sm"
+                           maxlength="500" placeholder="例如：整单单价疑似数量误填" />
+                </div>
+                <div class="d-flex flex-wrap gap-2 mb-2">
+                    <button type="button" class="btn btn-sm btn-outline-danger" id="exclude-whole-btn">
+                        整单剔除选中方案
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-warning" id="exclude-selected-btn">
+                        剔除选中来源行
+                    </button>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th style="width:36px"><input type="checkbox" id="source-select-all" /></th>
+                                <th>方案编号</th>
+                                <th>方案名称</th>
+                                <th>元件名称</th>
+                                <th>规格型号</th>
+                                <th class="text-end">单价</th>
+                                <th class="text-end">数量</th>
+                                <th>报价时间</th>
+                                <th>状态</th>
+                            </tr>
+                        </thead>
+                        <tbody id="source-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@Html.AntiForgeryToken()
+
+<div id="price-history-config"
+     data-list-url="@listUrl"
+     data-source-rows-url="@sourceRowsUrl"
+     data-exclude-url="@excludeUrl"
+     data-remove-exclusion-url="@removeExclusionUrl"
+     data-exclusions-url="@exclusionsUrl"
+     data-refresh-url="@refreshUrl"
+     data-update-url="@updateUrl"
+     data-batch-update-url="@batchUpdateUrl"></div>
+
+@section Scripts {
+    <script src="~/lib/handsontable/handsontable.full.min.js"></script>
+    <script src="~/js/price-history-maintain.js" asp-append-version="true"></script>
+}

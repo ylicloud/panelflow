@@ -38,6 +38,9 @@ builder.Services.AddScoped<IQuotationService, QuotationService>();
 builder.Services.AddScoped<ICustomerService, CustomerService>();
 builder.Services.AddScoped<ICustomerContactService, CustomerContactService>();
 builder.Services.AddScoped<IAuditLogService, AuditLogService>();
+builder.Services.AddScoped<IElementDictService, ElementDictService>();
+builder.Services.AddScoped<IQuotationStructureService, QuotationStructureService>();
+builder.Services.AddScoped<IPriceHistoryService, PriceHistoryService>();
 builder.Services.AddSingleton<IPermissionService, PermissionService>();
 
 // ===== Session =====

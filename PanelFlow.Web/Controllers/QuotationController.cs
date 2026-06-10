@@ -3,8 +3,10 @@ using PanelFlow.Core.Interfaces;
 using PanelFlow.Core.Models;
 using PanelFlow.Core.Services;
 using PanelFlow.Infrastructure.Data;
+using PanelFlow.Infrastructure.Extensions;
 using PanelFlow.Web.Extensions;
 using PanelFlow.Web.Filters;
+using PanelFlow.Web.Helpers;
 using PanelFlow.Web.Models.Quotation;
 using System.ComponentModel.DataAnnotations;
 using Microsoft.EntityFrameworkCore;
@@ -22,17 +24,23 @@ public class QuotationController : Controller
     private readonly ApplicationDbContext _db;
     private readonly ILogger<QuotationController> _logger;
     private readonly IAuditLogService _auditLogService;
+    private readonly IElementDictService _elementDictService;
+    private readonly IQuotationStructureService _structureService;
 
     public QuotationController(
         IQuotationService quotationService,
         ApplicationDbContext db,
         ILogger<QuotationController> logger,
-        IAuditLogService auditLogService)
+        IAuditLogService auditLogService,
+        IElementDictService elementDictService,
+        IQuotationStructureService structureService)
     {
         _quotationService = quotationService;
         _db = db;
         _logger = logger;
         _auditLogService = auditLogService;
+        _elementDictService = elementDictService;
+        _structureService = structureService;
     }
 
     [HttpGet]
@@ -127,7 +135,122 @@ public class QuotationController : Controller
         return Json(items);
     }
 
-﻿    [HttpGet]
+    /// <summary>
+    /// 结构维护页检索：与 Index 行操作条件一致，仅返回本人且未成立(dqzt≠10)的报价单。
+    /// </summary>
+    [HttpGet]
+    public async Task<IActionResult> SearchQuotations(string? keyword)
+    {
+        var loginUser = HttpContext.Session.GetLoginUser();
+        var loginUserName = (loginUser?.UserName ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(loginUserName))
+            return Json(Array.Empty<object>());
+
+        var kw = (keyword ?? string.Empty).Trim();
+        var cutoff = DateTime.Today.AddYears(-2);
+
+        var query =
+            from q in _db.BjfatQuotations.AsNoTracking().WhereOwnerOperable(loginUserName)
+            join c0 in _db.KhylbCustomers.AsNoTracking()
+                on q.khbh.Trim() equals c0.gsbh into cg
+            from c in cg.DefaultIfEmpty()
+            where q.fasj.HasValue && q.fasj.Value >= cutoff
+            select new { q, c };
+
+        if (!string.IsNullOrWhiteSpace(kw))
+        {
+            query = query.Where(x =>
+                x.q.fabh.Contains(kw) ||
+                x.q.famc.Contains(kw) ||
+                x.q.bjr.Contains(kw) ||
+                x.q.khbh.Contains(kw) ||
+                (x.c != null && x.c.gsmc.Contains(kw)) ||
+                (x.c != null && x.c.gsld.Contains(kw)));
+        }
+
+        var items = await query
+            .OrderByDescending(x => x.q.fasj)
+            .ThenByDescending(x => x.q.fabh)
+            .Take(20)
+            .Select(x => new
+            {
+                quotationNo = (x.q.fabh ?? string.Empty).Trim(),
+                quotationName = (x.q.famc ?? string.Empty).Trim(),
+                quoter = (x.q.bjr ?? string.Empty).Trim(),
+                customerName = (x.c != null ? (x.c.gsmc ?? string.Empty).Trim() : string.Empty),
+                currentStatus = x.q.dqzt
+            })
+            .ToListAsync();
+
+        return Json(items);
+    }
+
+    [HttpGet]
+    public IActionResult StructureMaintain()
+    {
+        ViewData["Title"] = "报价单结构维护";
+        ViewData["BreadcrumbTitle"] = "报价单结构维护";
+        return View();
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> GetQuotationTree(string fabh)
+    {
+        var loginUser = HttpContext.Session.GetLoginUser();
+        var loginUserName = (loginUser?.UserName ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(loginUserName))
+        {
+            return Unauthorized(new { success = false, message = "登录已失效，请重新登录后再试" });
+        }
+
+        var tree = await _structureService.GetTreeAsync(
+            fabh ?? string.Empty, loginUserName, loginUser?.RoleName ?? string.Empty);
+        if (tree == null)
+        {
+            return NotFound(new { success = false, message = "报价单不存在" });
+        }
+
+        return Json(new { success = true, data = tree });
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> ApplyStructure([FromBody] StructureApplyRequest? request)
+    {
+        if (request == null)
+        {
+            return BadRequest(new { success = false, message = "请求无效" });
+        }
+
+        var loginUser = HttpContext.Session.GetLoginUser();
+        var loginUserName = (loginUser?.UserName ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(loginUserName))
+        {
+            return Unauthorized(new { success = false, message = "登录已失效，请重新登录后再试" });
+        }
+
+        var result = await _structureService.ApplyAsync(
+            request, loginUserName, loginUser?.RoleName ?? string.Empty);
+
+        if (!result.Success)
+        {
+            return BadRequest(new { success = false, message = result.Message });
+        }
+
+        return Ok(new
+        {
+            success = true,
+            message = result.Message,
+            addedCount = result.AddedCount,
+            skippedCount = result.SkippedCount,
+            deletedCount = result.DeletedCount,
+            renamedCount = result.RenamedCount,
+            reorderedCount = result.ReorderedCount,
+            totalRowsWritten = result.TotalRowsWritten
+        });
+    }
+
+    [HttpGet]
     public async Task<IActionResult> Edit(string id)
     {
         ViewData["Title"] = "编辑报价单";
@@ -244,22 +367,70 @@ public class QuotationController : Controller
         }
 
         var quotationNo = (dto.QuotationNo ?? string.Empty).Trim();
-        var treeNodes = await _db.BjbItems
+
+        // 一次性加载全部 BJB 行（4/8/12 位），在内存中构建树，避免多次往返数据库
+        var allRows = await _db.BjbItems
             .AsNoTracking()
             .Where(x => x.fabh == quotationNo)
             .Select(x => new
             {
                 Code = (x.x_bm ?? string.Empty).Trim(),
-                Name = (x.x_mc ?? string.Empty).Trim()
-            })
-            .Where(x => x.Code.Length == 4 && x.Code != "9999")
-            .OrderBy(x => x.Code)
-            .Select(x => new QuotationTreeNodeViewModel
-            {
-                Code = x.Code,
-                Name = string.IsNullOrWhiteSpace(x.Name) ? x.Code : x.Name
+                Name = (x.x_mc ?? string.Empty).Trim(),
+                Lx = x.x_lx
             })
             .ToListAsync();
+
+        // 过滤特殊行，按编码长度分组
+        var rows4 = allRows.Where(x => x.Code.Length == 4 && x.Code != "0" && x.Code != "9999")
+                           .OrderBy(x => x.Code).ToList();
+        var rows8 = allRows.Where(x => x.Code.Length == 8).ToList();
+
+        // 以Level 2编码前8位作为 HashSet，快速判断 HasLevel3Children
+        var level3L2Prefixes = allRows
+            .Where(x => x.Code.Length == 12)
+            .Select(x => x.Code[..8])
+            .ToHashSet(StringComparer.Ordinal);
+
+        // 以Level 1编码作为 HashSet，快速判断 Level 1 节点是否有 Level 2 子行
+        var level1WithChildren = rows8
+            .Select(x => x.Code[..4])
+            .ToHashSet(StringComparer.Ordinal);
+
+        // 构建 Level 1 树节点（含 Level 2 子节点）
+        var treeNodes = rows4.Select(l1 =>
+        {
+            var children = rows8
+                .Where(l2 => l2.Code.StartsWith(l1.Code, StringComparison.Ordinal))
+                .OrderBy(l2 => l2.Code)
+                .Select(l2 => new QuotationTreeLevel2NodeViewModel
+                {
+                    Code = l2.Code,
+                    Name = string.IsNullOrWhiteSpace(l2.Name) ? l2.Code : l2.Name,
+                    HasLevel3Children = level3L2Prefixes.Contains(l2.Code)
+                })
+                .ToList();
+
+            return new QuotationTreeNodeViewModel
+            {
+                Code = l1.Code,
+                Name = string.IsNullOrWhiteSpace(l1.Name) ? l1.Code : l1.Name,
+                NodeType = level1WithChildren.Contains(l1.Code) ? "cabinet" : "leaf",
+                Level2Children = children
+            };
+        }).ToList();
+
+        // 构建属性视图树节点：Level 2 非器件行，按 x_lx 分组（x_lx=1 为器件，跳过）
+        var attrNodes = rows8
+            .Where(x => x.Lx.HasValue && x.Lx.Value != 1)
+            .GroupBy(x => x.Lx!.Value)
+            .Select(g => new QuotationAttrNodeViewModel
+            {
+                Xlx = g.Key,
+                Name = g.First().Name,
+                Count = g.Count()
+            })
+            .OrderBy(x => x.Xlx)
+            .ToList();
 
         // 权限判断：报价人本人或管理员可编辑
         var loginUser = HttpContext.Session.GetLoginUser();
@@ -276,9 +447,280 @@ public class QuotationController : Controller
             CurrentStatus = dto.CurrentStatus,
             ActiveSection = activeSection,
             TreeNodes = treeNodes,
+            AttrNodes = attrNodes,
             CanEdit = canEdit
         };
         return viewModel;
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // 一、二级叶节点填价：附加费用项 + 属性视图 + 保存
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// 获取指定控制柜（cabinet）的 Level 2 附加费用项，或 Level 1 叶节点（leaf）自身行。
+    /// - cabinet：返回该柜下 x_bm.Length==8 且无12位子行的行（数据驱动，非硬编码）
+    /// - leaf：返回 x_bm==unitCode 的 Level 1 行自身
+    /// </summary>
+    [HttpGet]
+    public async Task<IActionResult> GetCabinetAdditionalItems(string id, string unitCode)
+    {
+        var quotationNo = (id ?? string.Empty).Trim();
+        var code = (unitCode ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(quotationNo) || string.IsNullOrWhiteSpace(code))
+            return BadRequest(new { success = false, message = "报价单编号和节点编码不能为空" });
+
+        var rows = await _db.BjbItems
+            .AsNoTracking()
+            .Where(x => x.fabh == quotationNo)
+            .Select(x => new
+            {
+                Code = (x.x_bm ?? string.Empty).Trim(),
+                Name = (x.x_mc ?? string.Empty).Trim(),
+                Spec = (x.x_ggxh ?? string.Empty).Trim(),
+                Unit = (x.x_dw ?? string.Empty).Trim(),
+                Price = x.x_bj_dj,
+                Qty = x.x_sl,
+                FloatRate = x.x_fdds,
+                Vendor = (x.x_sccj ?? string.Empty).Trim()
+            })
+            .ToListAsync();
+
+        // 构建 Level 3 → Level 2 前缀集合，用于判断 Level 2 节点是否有子行（数据驱动）
+        var level3L2Prefixes = rows
+            .Where(x => x.Code.Length == 12)
+            .Select(x => x.Code[..8])
+            .ToHashSet(StringComparer.Ordinal);
+
+        var isLeaf = code.Length == 4
+            && !rows.Any(x => x.Code.Length == 8 && x.Code.StartsWith(code, StringComparison.Ordinal));
+
+        IEnumerable<object> items;
+        if (isLeaf)
+        {
+            // Level 1 叶节点：返回自身行
+            items = rows
+                .Where(x => x.Code == code)
+                .Select(x => (object)new
+                {
+                    x_bm = x.Code,
+                    x_mc = x.Name,
+                    x_ggxh = x.Spec,
+                    x_dw = x.Unit,
+                    x_bj_dj = x.Price ?? 0m,
+                    x_sl = x.Qty ?? 0m,
+                    x_fdds = x.FloatRate ?? 0m,
+                    x_sccj = x.Vendor
+                });
+        }
+        else
+        {
+            // cabinet：返回 Level 2 中无12位子行的附加费用项（数据驱动排除器件）
+            items = rows
+                .Where(x => x.Code.Length == 8
+                    && x.Code.StartsWith(code, StringComparison.Ordinal)
+                    && !level3L2Prefixes.Contains(x.Code))
+                .OrderBy(x => x.Code)
+                .Select(x => (object)new
+                {
+                    x_bm = x.Code,
+                    x_mc = x.Name,
+                    x_ggxh = x.Spec,
+                    x_dw = x.Unit,
+                    x_bj_dj = x.Price ?? 0m,
+                    x_sl = x.Qty ?? 0m,
+                    x_fdds = x.FloatRate ?? 0m,
+                    x_sccj = x.Vendor
+                });
+        }
+
+        return Ok(new { success = true, rows = items.ToList() });
+    }
+
+    /// <summary>
+    /// 属性视图：按 x_lx 返回全项目所有控制柜该属性的行，每行含控制柜信息。
+    /// xlx=0 时返回所有 Level 1 叶节点（无 Level 2 子行）。
+    /// 对于缺少该属性行的控制柜，补充 isPlaceholder=true 的占位记录。
+    /// </summary>
+    [HttpGet]
+    public async Task<IActionResult> GetAttributeItems(string id, int xlx)
+    {
+        var quotationNo = (id ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(quotationNo))
+            return BadRequest(new { success = false, message = "报价单编号不能为空" });
+
+        var rows = await _db.BjbItems
+            .AsNoTracking()
+            .Where(x => x.fabh == quotationNo)
+            .Select(x => new
+            {
+                Code = (x.x_bm ?? string.Empty).Trim(),
+                Name = (x.x_mc ?? string.Empty).Trim(),
+                Spec = (x.x_ggxh ?? string.Empty).Trim(),
+                Unit = (x.x_dw ?? string.Empty).Trim(),
+                Price = x.x_bj_dj,
+                Qty = x.x_sl,
+                FloatRate = x.x_fdds,
+                Vendor = (x.x_sccj ?? string.Empty).Trim(),
+                Lx = x.x_lx
+            })
+            .ToListAsync();
+
+        if (xlx == 0)
+        {
+            // 特殊：Level 1 叶节点（无任何 8 位子行）
+            var level1WithChildren = rows
+                .Where(x => x.Code.Length == 8)
+                .Select(x => x.Code[..4])
+                .ToHashSet(StringComparer.Ordinal);
+
+            var leafItems = rows
+                .Where(x => x.Code.Length == 4 && x.Code != "0" && x.Code != "9999"
+                    && !level1WithChildren.Contains(x.Code))
+                .OrderBy(x => x.Code)
+                .Select(x => (object)new
+                {
+                    cabinetCode = (string?)null,
+                    cabinetName = (string?)null,
+                    x_bm = x.Code,
+                    x_mc = x.Name,
+                    x_ggxh = x.Spec,
+                    x_dw = x.Unit,
+                    x_bj_dj = x.Price ?? 0m,
+                    x_sl = x.Qty ?? 0m,
+                    x_fdds = x.FloatRate ?? 0m,
+                    x_sccj = x.Vendor,
+                    isPlaceholder = false
+                })
+                .ToList();
+
+            return Ok(new { success = true, rows = leafItems });
+        }
+
+        // 按 x_lx 查目标属性行，建立"控制柜编码 → 属性行"映射
+        var attrByL1 = rows
+            .Where(x => x.Code.Length == 8 && x.Lx == xlx)
+            .ToDictionary(x => x.Code[..4], x => x, StringComparer.Ordinal);
+
+        // 取全部 cabinet 控制柜（有 Level 2 子行的 Level 1 节点）
+        var level2L1Prefixes = rows
+            .Where(x => x.Code.Length == 8)
+            .Select(x => x.Code[..4])
+            .ToHashSet(StringComparer.Ordinal);
+
+        // 控制柜名称 map
+        var cabinetNameMap = rows
+            .Where(x => x.Code.Length == 4 && level2L1Prefixes.Contains(x.Code))
+            .ToDictionary(x => x.Code, x => string.IsNullOrWhiteSpace(x.Name) ? x.Code : x.Name,
+                StringComparer.Ordinal);
+
+        var result = level2L1Prefixes
+            .OrderBy(c => c)
+            .Select(cabCode =>
+            {
+                var cabName = cabinetNameMap.TryGetValue(cabCode, out var n) ? n : cabCode;
+                if (attrByL1.TryGetValue(cabCode, out var attr))
+                {
+                    return (object)new
+                    {
+                        cabinetCode = cabCode,
+                        cabinetName = cabName,
+                        x_bm = attr.Code,
+                        x_mc = attr.Name,
+                        x_ggxh = attr.Spec,
+                        x_dw = attr.Unit,
+                        x_bj_dj = attr.Price ?? 0m,
+                        x_sl = attr.Qty ?? 0m,
+                        x_fdds = attr.FloatRate ?? 0m,
+                        x_sccj = attr.Vendor,
+                        isPlaceholder = false
+                    };
+                }
+                // 该控制柜缺少此属性行，返回占位记录
+                return (object)new
+                {
+                    cabinetCode = cabCode,
+                    cabinetName = cabName,
+                    x_bm = (string?)null,
+                    x_mc = (string?)null,
+                    x_ggxh = (string?)null,
+                    x_dw = (string?)null,
+                    x_bj_dj = 0m,
+                    x_sl = 0m,
+                    x_fdds = 0m,
+                    x_sccj = (string?)null,
+                    isPlaceholder = true
+                };
+            })
+            .ToList();
+
+        return Ok(new { success = true, rows = result });
+    }
+
+    /// <summary>
+    /// 按精确 x_bm 批量 UPDATE Level 1/2 叶节点行的多个字段（规格/单位/单价/数量/浮动/厂家）。
+    /// 不触发 x_bm 重排序；仅允许报价人本人或管理员操作。
+    /// </summary>
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> SaveLeafItemFields([FromBody] SaveLeafItemFieldsRequest request)
+    {
+        if (request == null || string.IsNullOrWhiteSpace(request.QuotationNo))
+            return BadRequest(new { success = false, message = "请求参数不完整" });
+        if (request.Items == null || request.Items.Count == 0)
+            return Ok(new { success = true, message = "无需更新" });
+
+        var quotationNo = request.QuotationNo.Trim();
+
+        // 权限校验
+        var loginUser = HttpContext.Session.GetLoginUser();
+        if (loginUser == null)
+            return Unauthorized(new { success = false, message = "请先登录" });
+
+        var dto = await _quotationService.GetByQuotationNoAsync(quotationNo);
+        if (dto == null)
+            return BadRequest(new { success = false, message = "报价单不存在" });
+        if (dto.CurrentStatus == 10)
+            return BadRequest(new { success = false, message = "已成立的报价单不允许修改" });
+
+        var loginUserName = (loginUser.UserName ?? string.Empty).Trim();
+        var loginRole = (loginUser.RoleName ?? string.Empty).Trim();
+        var isAdmin = string.Equals(loginRole, RoleNames.Admin, StringComparison.OrdinalIgnoreCase);
+        var owner = (dto.Quoter ?? string.Empty).Trim();
+        if (!isAdmin && !string.Equals(owner, loginUserName, StringComparison.OrdinalIgnoreCase))
+            return StatusCode(403, new { success = false, message = "无权修改此报价单" });
+
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            foreach (var item in request.Items)
+            {
+                var code = (item.Code ?? string.Empty).Trim();
+                if (string.IsNullOrWhiteSpace(code)) continue;
+                var dj = item.Price * (1 + (item.FloatRate) / 100m);
+                await _db.Database.ExecuteSqlInterpolatedAsync($@"
+UPDATE BJB SET
+    x_ggxh      = {item.Spec},
+    x_dw        = {item.Unit},
+    x_bj_dj     = {item.Price},
+    x_bjb_dj    = {item.Price},
+    x_bjb_bj    = {item.Price},
+    x_sl        = {item.Qty},
+    x_fdds      = {item.FloatRate},
+    x_sccj      = {item.Vendor},
+    x_dj        = {dj}
+WHERE fabh = {quotationNo}
+  AND LTRIM(RTRIM(x_bm)) = {code}");
+            }
+            await tx.CommitAsync();
+            return Ok(new { success = true, message = $"已保存 {request.Items.Count} 行" });
+        }
+        catch (Exception ex)
+        {
+            await tx.RollbackAsync();
+            _logger.LogError(ex, "SaveLeafItemFields 失败。quotationNo={QuotationNo}", quotationNo);
+            return StatusCode(500, new { success = false, message = $"保存失败：{ex.Message}" });
+        }
     }
 
     [HttpGet]
@@ -1208,7 +1650,10 @@ WHERE fabh = {quotationNo}
             });
         }
 
-        var rowsToInsert = BuildRowsFromTable(tableRows, treeNodeNames);
+        // 第2级默认节点改由通用项字典驱动（Level=2 且 IsDefaultOnImport=1 且 IsEnabled=1，按 SortOrder）。
+        // 字典为空时回退到内置默认 5 类，保证行为不退化。
+        var defaultLevel2Nodes = await _elementDictService.GetDefaultImportLevel2Async();
+        var rowsToInsert = BuildRowsFromTable(tableRows, treeNodeNames, defaultLevel2Nodes);
         if (rowsToInsert.Count == 0)
             return BadRequest(new { success = false, message = "未解析到可保存的目录/元件数据" });
 
@@ -1227,13 +1672,26 @@ WHERE fabh = {quotationNo}
             });
         }
 
+        var lengthErrors = BjbImportFieldLimits.ValidateImportTable(
+            tableRows, treeNodeNames, NormalizeSpec);
+        if (lengthErrors.Count > 0)
+        {
+            return BadRequest(new
+            {
+                success = false,
+                message = lengthErrors[0],
+                lengthErrors = lengthErrors.Take(20).ToList()
+            });
+        }
+
         // --- 计算 x_dj 和 x_wzdh（Req 10.4, 10.5, 12.6）---
         foreach (var row in rowsToInsert)
         {
             // x_wzdh: NormalizeSpec 处理 x_ggxh（BuildRowsFromTable 已设置，此处确保一致性）
             if (row.Xlx == 11)
             {
-                row.Xwzdh = NormalizeSpec(row.Xggxh);
+                row.Xwzdh = BjbImportFieldLimits.Limit(
+                    NormalizeSpec(row.Xggxh), BjbImportFieldLimits.XWzdh);
             }
 
             // x_dj = x_bj_dj * (1 + x_fdds / 100)，x_fdds 为 NULL 视为 0
@@ -1506,8 +1964,23 @@ WHERE fabh = {fabh}
     // [InternalsVisibleTo("PanelFlow.Web.Tests")] 直接调用。本调整仅扩大可见范围、
     // 不改变方法行为，与设计文档 design.md "风险与未验证项" 中 "BuildRowsFromTable
     // 当前位于 Controller 内部，PBT 测试需要将其从 internal 升级访问可见性" 一致。
-    internal static List<BjbWriteRow> BuildRowsFromTable(List<List<string?>> tableRows, List<string> treeNodeNames)
+    /// <summary>
+    /// 导入时为每个控制柜固定插入的第 2 级默认节点（与历史 PB 行为等价）。
+    /// 当未传入字典默认列表时作为回退，保证编码顺序：器件固定首位（其下挂 12 位元件）。
+    /// </summary>
+    private static readonly IReadOnlyList<(string Name, int Xlx)> FallbackDefaultLevel2Nodes =
+    [
+        ("器件", 1), ("辅料", 12), ("壳体", 13), ("安装", 14), ("包装", 15)
+    ];
+
+    internal static List<BjbWriteRow> BuildRowsFromTable(
+        List<List<string?>> tableRows,
+        List<string> treeNodeNames,
+        IReadOnlyList<(string Name, int Xlx)>? defaultLevel2Nodes = null)
     {
+        var level2Nodes = defaultLevel2Nodes is { Count: > 0 }
+            ? defaultLevel2Nodes
+            : FallbackDefaultLevel2Nodes;
         var sourceUnits = ParseSourceUnits(tableRows);
         if (sourceUnits.Count == 0)
         {
@@ -1535,7 +2008,7 @@ WHERE fabh = {fabh}
                 result.Add(new BjbWriteRow
                 {
                     Xbm = currentUnitCode,
-                    Xmc = Limit(unitNodeName, 50),
+                    Xmc = BjbImportFieldLimits.Limit(unitNodeName, BjbImportFieldLimits.XMc),
                     Xggxh = string.Empty,
                     Xsccj = string.Empty,
                     Xdj = 0m,
@@ -1546,11 +2019,11 @@ WHERE fabh = {fabh}
                     Xlx = 1
                 });
 
-                result.Add(CreateFixedNode(currentUnitCode, "0001", "器件", 1));
-                result.Add(CreateFixedNode(currentUnitCode, "0002", "辅料", 12));
-                result.Add(CreateFixedNode(currentUnitCode, "0003", "壳体", 13));
-                result.Add(CreateFixedNode(currentUnitCode, "0004", "安装", 14));
-                result.Add(CreateFixedNode(currentUnitCode, "0005", "包装", 15));
+                for (var nodeIdx = 0; nodeIdx < level2Nodes.Count; nodeIdx++)
+                {
+                    var suffix = (nodeIdx + 1).ToString("D4", CultureInfo.InvariantCulture);
+                    result.Add(CreateFixedNode(currentUnitCode, suffix, level2Nodes[nodeIdx].Name, level2Nodes[nodeIdx].Xlx));
+                }
 
                 var componentSeq = 0;
                 foreach (var component in sourceUnit.Components)
@@ -1563,7 +2036,8 @@ WHERE fabh = {fabh}
                         Xmc = component.Name,
                         Xggxh = component.Spec,
                         Xsccj = component.Vendor,
-                        Xwzdh = NormalizeSpec(component.Spec),
+                        Xwzdh = BjbImportFieldLimits.Limit(
+                            NormalizeSpec(component.Spec), BjbImportFieldLimits.XWzdh),
                         Xdj = component.Price,
                         Xsl = component.Qty,
                         XbjDj = component.Price,
@@ -1623,9 +2097,9 @@ WHERE fabh = {fabh}
 
             currentUnit.Components.Add(new ComponentSourceRow
             {
-                Name = Limit(c3Name, 50),
-                Spec = Limit(c4Spec, 50),
-                Vendor = Limit(c7Vendor, 50),
+                Name = BjbImportFieldLimits.Limit(c3Name, BjbImportFieldLimits.XMc),
+                Spec = BjbImportFieldLimits.Limit(c4Spec, BjbImportFieldLimits.XGgxh),
+                Vendor = BjbImportFieldLimits.Limit(c7Vendor, BjbImportFieldLimits.XSccj),
                 Price = ParseDecimal(c5Price),
                 Qty = ParseDecimal(c6Qty)
             });
@@ -1690,12 +2164,6 @@ WHERE fabh = {fabh}
             XbjbDj = 0m,
             Xlx = type
         };
-    }
-
-    private static string Limit(string? value, int maxLen)
-    {
-        var text = (value ?? string.Empty).Trim();
-        return text.Length <= maxLen ? text : text[..maxLen];
     }
 
     private sealed record WzdhComponentMatch(string Code, string CabCode, string CabName, string Name, string Spec);
@@ -2769,4 +3237,21 @@ internal class StdPriceHistoryDto
     public decimal? MinPrice { get; set; }
     public decimal? MaxPrice { get; set; }
     public int AvgCount { get; set; }
+}
+
+public class SaveLeafItemFieldsRequest
+{
+    public string QuotationNo { get; set; } = string.Empty;
+    public List<LeafItemUpdateRow> Items { get; set; } = [];
+}
+
+public class LeafItemUpdateRow
+{
+    public string Code { get; set; } = string.Empty;
+    public string? Spec { get; set; }
+    public string? Unit { get; set; }
+    public decimal Price { get; set; }
+    public decimal Qty { get; set; }
+    public decimal FloatRate { get; set; }
+    public string? Vendor { get; set; }
 }

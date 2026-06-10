@@ -110,6 +110,11 @@ body {
     font-size: 0.84rem;
 }
 
+.oa-submenu-nested .oa-subnav-link-leaf {
+    padding-left: 3.25rem;
+    font-size: 0.82rem;
+}
+
 /* ===== 主内容区 ===== */
 .oa-main {
     margin-left: var(--oa-sidebar-width);

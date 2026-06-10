@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Data.SqlClient;
 using PanelFlow.Core.Interfaces;
 using PanelFlow.Core.Models;
+using PanelFlow.Core.Rules;
 using PanelFlow.Infrastructure.Data;
 using PanelFlow.Infrastructure.Entities;
 
@@ -361,10 +362,9 @@ VALUES
             return (false, "报价单不存在");
 
         var owner = (entity.bjr ?? string.Empty).Trim();
-        if (!string.Equals(owner, loginUser, StringComparison.OrdinalIgnoreCase))
+        if (!QuotationEditRules.IsOwner(owner, loginUser))
             return (false, "仅报价人本人可删除该报价单");
-        // 与列表 CanShowRowActions 一致：dqzt=10（已成立）不可删，其余状态由报价人删除
-        if (entity.dqzt == 10)
+        if (QuotationEditRules.IsEstablished(entity.dqzt))
             return (false, "已成立（dqzt=10）的报价单不允许删除");
 
         await using var tx = await _db.Database.BeginTransactionAsync();
@@ -405,10 +405,10 @@ WHERE fabh = {key}");
             return (false, "当前登录用户不能为空");
 
         var owner = (entity.bjr ?? string.Empty).Trim();
-        if (!string.Equals(owner, loginUser, StringComparison.OrdinalIgnoreCase))
+        if (!QuotationEditRules.IsOwner(owner, loginUser))
             return (false, "仅报价人本人可编辑该报价单");
 
-        if (entity.dqzt == 10)
+        if (QuotationEditRules.IsEstablished(entity.dqzt))
             return (false, "已成立（dqzt=10）的报价单不允许编辑");
 
         return (true, string.Empty);

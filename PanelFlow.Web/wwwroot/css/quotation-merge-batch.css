@@ -21,22 +21,6 @@
 }
 .oa-batch-section-toggle:hover { color: #0d6efd; }
 
-/* 元件编辑器表格：移动端横向可滚动 */
-.oa-component-editor {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-}
-
-.oa-component-table {
-  min-width: 380px;
-  font-size: 0.78rem;
-}
-
-.oa-component-table input {
-  min-width: 0;
-  padding: 2px 4px;
-}
-
 /* checkbox 与 tree-node-link 同行对齐 */
 .oa-unit-checkbox {
   cursor: pointer;
@@ -58,5 +42,4 @@
 
 @media (max-width: 768px) {
   .oa-batch-panel { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
-  .oa-component-table { font-size: 0.72rem; }
 }

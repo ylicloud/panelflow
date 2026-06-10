@@ -1,3 +1,4 @@
+@using PanelFlow.Core.Rules
 @model PanelFlow.Web.Controllers.QuotationListViewModel
 @{
     ViewData["Title"] = "报价单";
@@ -13,14 +14,9 @@
 
     bool IsEstablished(int status) => status == 10;
 
-    // Docs/technical-requirements/quotation.md §2：修改/删除/报价 均为 bjr=当前用户 且 dqzt≠10
+    // 与 QuotationEditRules.CanOwnerOperate / ValidateEditAccess 一致
     bool CanShowRowActions(QuotationDto item) =>
-        !string.IsNullOrWhiteSpace(currentUserName)
-        && string.Equals(
-            (item.Quoter ?? string.Empty).Trim(),
-            currentUserName,
-            StringComparison.OrdinalIgnoreCase)
-        && item.CurrentStatus != 10;
+        QuotationEditRules.CanOwnerOperate(item.Quoter, item.CurrentStatus, currentUserName);
 }
 
 <div class="d-flex justify-content-between align-items-center mb-3">
