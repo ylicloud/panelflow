@@ -3,12 +3,66 @@
     max-width: 280px;
 }
 
+.oa-ph-batch-field {
+    width: 90px;
+    max-width: 120px;
+}
+
+.oa-ph-batch-field:last-of-type {
+    width: 120px;
+    max-width: 160px;
+}
+
 #page-info-bar.is-error {
     color: var(--bs-danger);
 }
 
-.oa-ph-row-suspect {
-    background-color: #fff3cd;
+#history-hot-container {
+    width: 100%;
+    min-height: 360px;
+    height: calc(100vh - 360px);
+    overflow: hidden;
+}
+
+#history-hot-container .handsontable {
+    font-size: 0.8125rem;
+}
+
+#history-hot-container .htCore td {
+    vertical-align: middle;
+}
+
+#history-hot-container .htCore td.oa-ph-row-suspect {
+    background-color: #fff3cd !important;
+}
+
+#history-hot-container .ht_clone_top th.oa-ph-sortable {
+    cursor: pointer;
+    user-select: none;
+}
+
+#history-hot-container .ht_clone_top th.oa-ph-sortable:hover {
+    background-color: rgba(0, 0, 0, 0.04);
+}
+
+#history-hot-container .ht_clone_top th.oa-ph-sortable::after {
+    content: " ⇅";
+    font-size: 0.65rem;
+    color: #adb5bd;
+    font-weight: normal;
+}
+
+#history-hot-container .ht_clone_top th.oa-ph-sort-active::after {
+    color: #0d6efd;
+    font-weight: bold;
+}
+
+#history-hot-container .ht_clone_top th.oa-ph-sort-active[data-sort-dir="asc"]::after {
+    content: " ↑";
+}
+
+#history-hot-container .ht_clone_top th.oa-ph-sort-active[data-sort-dir="desc"]::after {
+    content: " ↓";
 }
 
 .oa-ph-source-suspect {
@@ -19,43 +73,9 @@
     opacity: 0.55;
 }
 
-.oa-ph-badge-suspect {
-    font-size: 0.7rem;
-}
-
 .oa-ph-deviation-warn {
     color: #b45309;
     font-weight: 600;
-}
-
-.oa-ph-sortable {
-    cursor: pointer;
-    user-select: none;
-    white-space: nowrap;
-}
-
-.oa-ph-sortable:hover {
-    background-color: rgba(0, 0, 0, 0.04);
-}
-
-.oa-ph-sortable::after {
-    content: " ⇅";
-    font-size: 0.65rem;
-    color: #adb5bd;
-    font-weight: normal;
-}
-
-.oa-ph-sort-active::after {
-    color: #0d6efd;
-    font-weight: bold;
-}
-
-.oa-ph-sort-active[data-sort-dir="asc"]::after {
-    content: " ↑";
-}
-
-.oa-ph-sort-active[data-sort-dir="desc"]::after {
-    content: " ↓";
 }
 
 .oa-ph-trend-chart {
@@ -71,4 +91,15 @@
     display: block;
     width: 100%;
     height: 200px;
+}
+
+@media (max-width: 768px) {
+    #history-hot-container {
+        height: calc(100vh - 420px);
+        min-height: 280px;
+    }
+
+    .oa-ph-batch-field {
+        width: 72px;
+    }
 }

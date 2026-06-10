@@ -11,4 +11,8 @@ public interface IPriceHistoryService
     Task<(bool Success, string Message)> RemoveExclusionAsync(int id, string userName);
     Task<IReadOnlyList<PriceExclusionDto>> ListExclusionsAsync();
     Task<(bool Success, string Message)> RefreshHistoryAsync(string userName);
+    Task<(bool Success, string Message)> UpdateAttributesAsync(
+        IReadOnlyList<PriceHistoryAttributeUpdateItem> items, string userName);
+    Task<(bool Success, string Message, int AffectedCount)> BatchUpdateAttributesAsync(
+        PriceHistoryBatchUpdateRequest request, string userName);
 }

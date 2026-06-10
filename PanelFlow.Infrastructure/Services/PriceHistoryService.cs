@@ -11,6 +11,8 @@ public class PriceHistoryService : IPriceHistoryService
 {
     /// <summary>最新价与均价偏离超过此比例时标记为异常（与填价页偏离检测口径一致）。</summary>
     private const decimal LastAvgDeviationRatio = 0.2m;
+    private const int MaxUnitLength = 10;
+    private const int MaxVendorLength = 100;
 
     private readonly ApplicationDbContext _db;
     private readonly IAuditLogService _auditLogService;
@@ -27,28 +29,7 @@ public class PriceHistoryService : IPriceHistoryService
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 10, 100);
 
-        var query = _db.StdPriceHistories.AsNoTracking();
-
-        if (!string.IsNullOrWhiteSpace(keyword))
-        {
-            var kw = keyword.Trim();
-            query = query.Where(h =>
-                h.x_wzdh.Contains(kw) ||
-                (h.ggxh != null && h.ggxh.Contains(kw)) ||
-                (h.x_mc != null && h.x_mc.Contains(kw)) ||
-                (h.last_fabh != null && h.last_fabh.Contains(kw)));
-        }
-
-        var allRows = await query.ToListAsync();
-
-        var mapped = allRows.Select(ToHistoryRowDto).ToList();
-
-        if (onlySuspect)
-        {
-            mapped = mapped.Where(x => x.IsSuspect).ToList();
-        }
-
-        mapped = ApplySort(mapped, sortBy, sortAsc);
+        var mapped = await LoadFilteredHistoryRowsAsync(keyword, onlySuspect, sortBy, sortAsc);
 
         var total = mapped.Count;
         var items = mapped
@@ -290,6 +271,220 @@ ORDER BY b.fabh DESC, b.x_bm", fiveYearsAgo, wzdh).ToListAsync();
         }
     }
 
+    public async Task<(bool Success, string Message)> UpdateAttributesAsync(
+        IReadOnlyList<PriceHistoryAttributeUpdateItem> items, string userName)
+    {
+        if (items == null || items.Count == 0)
+        {
+            return (false, "没有要保存的数据");
+        }
+
+        var ids = items.Select(x => x.Id).Distinct().ToList();
+        var entities = await _db.StdPriceHistories
+            .Where(h => ids.Contains(h.Id))
+            .ToListAsync();
+
+        if (entities.Count == 0)
+        {
+            return (false, "记录不存在");
+        }
+
+        var entityMap = entities.ToDictionary(x => x.Id);
+        var changes = new List<object>();
+
+        foreach (var item in items)
+        {
+            if (!entityMap.TryGetValue(item.Id, out var entity))
+            {
+                continue;
+            }
+
+            var (dw, dwErr) = NormalizeOptionalField(item.x_dw, MaxUnitLength, "单位");
+            if (dwErr != null)
+            {
+                return (false, dwErr);
+            }
+
+            var (sccj, sccjErr) = NormalizeOptionalField(item.x_sccj, MaxVendorLength, "厂商");
+            if (sccjErr != null)
+            {
+                return (false, sccjErr);
+            }
+
+            var before = new { entity.x_dw, entity.x_sccj };
+            entity.x_dw = dw;
+            entity.x_sccj = sccj;
+            entity.updated_at = DateTime.Now;
+            changes.Add(new
+            {
+                entity.Id,
+                entity.x_wzdh,
+                before,
+                after = new { entity.x_dw, entity.x_sccj }
+            });
+        }
+
+        if (changes.Count == 0)
+        {
+            return (false, "没有有效的更新项");
+        }
+
+        await _db.SaveChangesAsync();
+
+        await _auditLogService.WriteAsync(new AuditLogEntry
+        {
+            ActionType = "UpdatePriceHistoryAttributes",
+            Module = "PriceHistory",
+            EntityName = "STD_PRICE_HISTORY",
+            UserName = userName,
+            IsSuccess = true,
+            AfterData = JsonSerializer.Serialize(changes)
+        });
+
+        return (true, $"已保存 {changes.Count} 条");
+    }
+
+    public async Task<(bool Success, string Message, int AffectedCount)> BatchUpdateAttributesAsync(
+        PriceHistoryBatchUpdateRequest request, string userName)
+    {
+        request ??= new PriceHistoryBatchUpdateRequest();
+
+        var hasDw = request.x_dw != null;
+        var hasSccj = request.x_sccj != null;
+        if (!hasDw && !hasSccj)
+        {
+            return (false, "请至少填写单位或厂商", 0);
+        }
+
+        string? newDw = null;
+        string? newSccj = null;
+
+        if (hasDw)
+        {
+            var (dw, dwErr) = NormalizeOptionalField(request.x_dw, MaxUnitLength, "单位");
+            if (dwErr != null)
+            {
+                return (false, dwErr, 0);
+            }
+
+            newDw = dw;
+        }
+
+        if (hasSccj)
+        {
+            var (sccj, sccjErr) = NormalizeOptionalField(request.x_sccj, MaxVendorLength, "厂商");
+            if (sccjErr != null)
+            {
+                return (false, sccjErr, 0);
+            }
+
+            newSccj = sccj;
+        }
+
+        var matched = await LoadFilteredHistoryRowsAsync(request.Keyword, request.OnlySuspect);
+        if (matched.Count == 0)
+        {
+            return (false, "当前筛选条件下没有匹配记录", 0);
+        }
+
+        var ids = matched.Select(x => x.Id).ToList();
+        var entities = await _db.StdPriceHistories
+            .Where(h => ids.Contains(h.Id))
+            .ToListAsync();
+
+        var now = DateTime.Now;
+        foreach (var entity in entities)
+        {
+            if (hasDw)
+            {
+                entity.x_dw = newDw;
+            }
+
+            if (hasSccj)
+            {
+                entity.x_sccj = newSccj;
+            }
+
+            entity.updated_at = now;
+        }
+
+        await _db.SaveChangesAsync();
+
+        await _auditLogService.WriteAsync(new AuditLogEntry
+        {
+            ActionType = "BatchUpdatePriceHistoryAttributes",
+            Module = "PriceHistory",
+            EntityName = "STD_PRICE_HISTORY",
+            UserName = userName,
+            IsSuccess = true,
+            AfterData = JsonSerializer.Serialize(new
+            {
+                request.Keyword,
+                request.OnlySuspect,
+                x_dw = newDw,
+                x_sccj = newSccj,
+                affectedCount = entities.Count
+            })
+        });
+
+        return (true, $"已批量更新 {entities.Count} 条", entities.Count);
+    }
+
+    private async Task<List<PriceHistoryRowDto>> LoadFilteredHistoryRowsAsync(
+        string? keyword, bool onlySuspect, string? sortBy = null, bool sortAsc = true)
+    {
+        var query = _db.StdPriceHistories.AsNoTracking();
+
+        if (!string.IsNullOrWhiteSpace(keyword))
+        {
+            var kw = keyword.Trim();
+            query = query.Where(h =>
+                h.x_wzdh.Contains(kw) ||
+                (h.ggxh != null && h.ggxh.Contains(kw)) ||
+                (h.x_mc != null && h.x_mc.Contains(kw)) ||
+                (h.x_dw != null && h.x_dw.Contains(kw)) ||
+                (h.x_sccj != null && h.x_sccj.Contains(kw)) ||
+                (h.last_fabh != null && h.last_fabh.Contains(kw)));
+        }
+
+        var allRows = await query.ToListAsync();
+        var mapped = allRows.Select(ToHistoryRowDto).ToList();
+
+        if (onlySuspect)
+        {
+            mapped = mapped.Where(x => x.IsSuspect).ToList();
+        }
+
+        if (sortBy != null)
+        {
+            mapped = ApplySort(mapped, sortBy, sortAsc);
+        }
+
+        return mapped;
+    }
+
+    private static (string? Value, string? Error) NormalizeOptionalField(
+        string? value, int maxLength, string fieldLabel)
+    {
+        if (value == null)
+        {
+            return (null, null);
+        }
+
+        var trimmed = value.Trim();
+        if (trimmed.Length == 0)
+        {
+            return (null, null);
+        }
+
+        if (trimmed.Length > maxLength)
+        {
+            return (null, $"{fieldLabel}不能超过 {maxLength} 个字符");
+        }
+
+        return (trimmed, null);
+    }
+
     private async Task<List<StdPriceExclusion>> LoadExclusionMapAsync()
     {
         return await _db.StdPriceExclusions.AsNoTracking().ToListAsync();
@@ -385,9 +580,12 @@ ORDER BY b.fabh DESC, b.x_bm", fiveYearsAgo, wzdh).ToListAsync();
             "last_fabh" => sortAsc
                 ? items.OrderBy(x => x.last_fabh ?? string.Empty, StringComparer.OrdinalIgnoreCase)
                 : items.OrderByDescending(x => x.last_fabh ?? string.Empty, StringComparer.OrdinalIgnoreCase),
-            "status" => sortAsc
-                ? items.OrderBy(x => x.IsSuspect)
-                : items.OrderByDescending(x => x.IsSuspect),
+            "x_dw" => sortAsc
+                ? items.OrderBy(x => x.x_dw ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+                : items.OrderByDescending(x => x.x_dw ?? string.Empty, StringComparer.OrdinalIgnoreCase),
+            "x_sccj" => sortAsc
+                ? items.OrderBy(x => x.x_sccj ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+                : items.OrderByDescending(x => x.x_sccj ?? string.Empty, StringComparer.OrdinalIgnoreCase),
             _ => sortAsc
                 ? items.OrderBy(x => x.ggxh ?? string.Empty, StringComparer.OrdinalIgnoreCase)
                 : items.OrderByDescending(x => x.ggxh ?? string.Empty, StringComparer.OrdinalIgnoreCase)

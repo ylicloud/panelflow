@@ -10,13 +10,15 @@
     const removeExclusionUrl = cfg.dataset.removeExclusionUrl;
     const exclusionsUrl = cfg.dataset.exclusionsUrl;
     const refreshUrl = cfg.dataset.refreshUrl;
+    const updateUrl = cfg.dataset.updateUrl;
+    const batchUpdateUrl = cfg.dataset.batchUpdateUrl;
 
     const infoBar = document.getElementById("page-info-bar");
-    const historyTbody = document.getElementById("history-tbody");
     const exclusionsTbody = document.getElementById("exclusions-tbody");
     const historyPanel = document.getElementById("history-panel");
     const exclusionsPanel = document.getElementById("exclusions-panel");
     const historyToolbar = document.getElementById("history-toolbar");
+    const batchToolbar = document.getElementById("batch-toolbar");
     const searchInput = document.getElementById("search-input");
     const onlySuspect = document.getElementById("only-suspect");
     const refreshSpBtn = document.getElementById("refresh-sp-btn");
@@ -24,6 +26,10 @@
     const nextPageBtn = document.getElementById("next-page-btn");
     const pagerInfo = document.getElementById("history-pager-info");
     const mainTabs = document.getElementById("main-tabs");
+    const hotContainer = document.getElementById("history-hot-container");
+    const batchDwInput = document.getElementById("batch-dw-input");
+    const batchSccjInput = document.getElementById("batch-sccj-input");
+    const batchApplyBtn = document.getElementById("batch-apply-btn");
 
     const sourceModalEl = document.getElementById("source-modal");
     const sourceModal = sourceModalEl ? new bootstrap.Modal(sourceModalEl) : null;
@@ -33,7 +39,6 @@
     const excludeWholeBtn = document.getElementById("exclude-whole-btn");
     const excludeSelectedBtn = document.getElementById("exclude-selected-btn");
     const sourceSelectAll = document.getElementById("source-select-all");
-    const historyTheadRow = document.getElementById("history-thead-row");
     const sourceChartWrap = document.getElementById("source-chart-wrap");
     const sourceChart = document.getElementById("source-chart");
     const sourceChartLegend = document.getElementById("source-chart-legend");
@@ -45,7 +50,34 @@
     let currentWzdh = "";
     let sourceRows = [];
     let searchTimer = null;
+    let historyRows = [];
+    let hot = null;
+    let totalCount = 0;
     const deviationWarnPct = 20;
+
+    const pendingUpdates = new Map();
+    let saveTimer = null;
+    let isSaving = false;
+
+    const COL_VIEW = 0;
+    const COL_X_DW = 3;
+    const COL_DEVIATION = 6;
+    const COL_X_SCCJ = 11;
+
+    const columnMeta = [
+        { sortKey: null },
+        { sortKey: "x_mc" },
+        { sortKey: "ggxh" },
+        { sortKey: "x_dw" },
+        { sortKey: "last_price" },
+        { sortKey: "avg_price" },
+        { sortKey: "deviation" },
+        { sortKey: "min_price" },
+        { sortKey: "max_price" },
+        { sortKey: "avg_count" },
+        { sortKey: "last_fabh" },
+        { sortKey: "x_sccj" }
+    ];
 
     const token = () => {
         const el = document.querySelector('input[name="__RequestVerificationToken"]');
@@ -79,27 +111,61 @@
         return d.toLocaleDateString("zh-CN", { year: "2-digit", month: "2-digit", day: "2-digit" });
     };
 
-    const fmtDeviation = (pct, isSuspect) => {
-        if (pct === null || pct === undefined || Number.isNaN(Number(pct))) return "—";
-        const n = Number(pct);
-        const sign = n > 0 ? "+" : "";
-        const text = sign + n.toFixed(1) + "%";
-        if (isSuspect || Math.abs(n) > deviationWarnPct) {
-            return `<span class="oa-ph-deviation-warn">${text}</span>`;
-        }
-        return text;
+    const escapeHtml = (s) => {
+        if (s === null || s === undefined) return "";
+        return String(s)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;");
     };
 
-    const updateSortHeaders = () => {
-        historyTheadRow?.querySelectorAll(".oa-ph-sortable").forEach((th) => {
-            const active = th.dataset.sort === sortBy;
-            th.classList.toggle("oa-ph-sort-active", active);
-            if (active) {
-                th.dataset.sortDir = sortAsc ? "asc" : "desc";
+    const ellipsisRenderer = (instance, td, row, col, prop, value, cellProperties) => {
+        Handsontable.renderers.TextRenderer(instance, td, row, col, prop, value, cellProperties);
+        td.style.overflow = "hidden";
+        td.style.textOverflow = "ellipsis";
+        td.style.whiteSpace = "nowrap";
+        const text = value === null || value === undefined ? "" : String(value);
+        if (text) {
+            td.title = text;
+        }
+    };
+
+    const moneyRenderer = (instance, td, row, col, prop, value, cellProperties) => {
+        Handsontable.renderers.TextRenderer(instance, td, row, col, prop, fmtMoney(value), cellProperties);
+        td.style.textAlign = "right";
+    };
+
+    const deviationRenderer = (instance, td, row, col, prop, value, cellProperties) => {
+        const rowData = historyRows[row];
+        const pct = rowData?.deviationPercent;
+        const isSuspect = rowData?.isSuspect;
+        let html = "—";
+        if (pct !== null && pct !== undefined && !Number.isNaN(Number(pct))) {
+            const n = Number(pct);
+            const sign = n > 0 ? "+" : "";
+            const text = sign + n.toFixed(1) + "%";
+            if (isSuspect || Math.abs(n) > deviationWarnPct) {
+                html = `<span class="oa-ph-deviation-warn">${text}</span>`;
             } else {
-                delete th.dataset.sortDir;
+                html = text;
             }
-        });
+        }
+        Handsontable.renderers.HtmlRenderer(instance, td, row, col, prop, html, cellProperties);
+        td.style.textAlign = "right";
+        if (rowData?.suspectReason) {
+            td.title = rowData.suspectReason;
+        }
+    };
+
+    const viewBtnRenderer = (instance, td, row, col, prop, value, cellProperties) => {
+        Handsontable.renderers.HtmlRenderer(
+            instance, td, row, col, prop,
+            '<button type="button" class="btn btn-sm btn-outline-secondary oa-ph-view-btn py-0 px-1">查看</button>',
+            cellProperties
+        );
+        td.style.textAlign = "center";
+        td.style.verticalAlign = "middle";
     };
 
     const postForm = async (url, data) => {
@@ -119,9 +185,197 @@
         return resp.json();
     };
 
+    const postJson = async (url, payload) => {
+        const headers = { "Content-Type": "application/json" };
+        const t = token();
+        if (t) {
+            headers.RequestVerificationToken = t;
+        }
+        const resp = await fetch(url, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(payload)
+        });
+        return resp.json();
+    };
+
+    const toHotRow = (row) => ({
+        x_mc: row.x_mc || "",
+        ggxh: row.ggxh || "",
+        x_dw: row.x_dw || "",
+        last_price: row.last_price,
+        avg_price: row.avg_price,
+        deviationPercent: row.deviationPercent,
+        min_price: row.min_price,
+        max_price: row.max_price,
+        avg_count: row.avg_count ?? 0,
+        last_fabh: row.last_fabh || "",
+        x_sccj: row.x_sccj || ""
+    });
+
+    const flushPendingSaves = async () => {
+        clearTimeout(saveTimer);
+        saveTimer = null;
+        if (pendingUpdates.size === 0) {
+            return true;
+        }
+        if (isSaving) {
+            return new Promise((resolve) => {
+                const check = () => {
+                    if (!isSaving) {
+                        resolve(flushPendingSaves());
+                    } else {
+                        setTimeout(check, 100);
+                    }
+                };
+                check();
+            });
+        }
+
+        const items = Array.from(pendingUpdates.values());
+        pendingUpdates.clear();
+        isSaving = true;
+
+        try {
+            const data = await postJson(updateUrl, items);
+            if (!data.success) {
+                setInfo(data.message || "保存失败", true);
+                return false;
+            }
+            return true;
+        } catch (err) {
+            setInfo("保存失败：" + err.message, true);
+            return false;
+        } finally {
+            isSaving = false;
+        }
+    };
+
+    const queueSave = (id, x_dw, x_sccj) => {
+        pendingUpdates.set(id, { id, x_dw, x_sccj });
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(() => {
+            flushPendingSaves();
+        }, 500);
+    };
+
+    const initHot = () => {
+        if (!hotContainer || typeof Handsontable === "undefined") return;
+
+        const licenseKey = hotContainer.dataset.licenseKey || "";
+
+        const hotHeight = () => Math.max(360, hotContainer.clientHeight || 400);
+
+        hot = new Handsontable(hotContainer, {
+            licenseKey,
+            data: [],
+            rowHeaders: false,
+            height: hotHeight(),
+            colHeaders: [
+                "查看", "元件名称", "规格型号", "单位", "最新价", "均价", "偏离",
+                "最低", "最高", "样本", "最新来源", "厂商"
+            ],
+            columns: [
+                { data: "_view", readOnly: true, width: 56, renderer: viewBtnRenderer },
+                { data: "x_mc", readOnly: true, width: 120, renderer: ellipsisRenderer },
+                { data: "ggxh", readOnly: true, width: 160, renderer: ellipsisRenderer },
+                { data: "x_dw", readOnly: false, width: 55 },
+                { data: "last_price", readOnly: true, width: 80, renderer: moneyRenderer },
+                { data: "avg_price", readOnly: true, width: 80, renderer: moneyRenderer },
+                { data: "deviationPercent", readOnly: true, width: 70, renderer: deviationRenderer },
+                { data: "min_price", readOnly: true, width: 75, renderer: moneyRenderer },
+                { data: "max_price", readOnly: true, width: 75, renderer: moneyRenderer },
+                { data: "avg_count", readOnly: true, width: 55, className: "htRight" },
+                { data: "last_fabh", readOnly: true, width: 100, renderer: ellipsisRenderer },
+                { data: "x_sccj", readOnly: false, width: 110, renderer: ellipsisRenderer }
+            ],
+            stretchH: "all",
+            manualColumnResize: true,
+            columnSorting: false,
+            renderAllRows: false,
+            copyPaste: true,
+            contextMenu: {
+                items: {
+                    copy: { name: "复制" }
+                }
+            },
+            cells(row) {
+                const cp = {};
+                if (historyRows[row]?.isSuspect) {
+                    cp.className = "oa-ph-row-suspect";
+                }
+                return cp;
+            },
+            afterGetColHeader(col, TH) {
+                const meta = columnMeta[col];
+                TH.classList.remove("oa-ph-sortable", "oa-ph-sort-active");
+                delete TH.dataset.sortDir;
+                if (!meta?.sortKey) return;
+                TH.classList.add("oa-ph-sortable");
+                if (meta.sortKey === sortBy) {
+                    TH.classList.add("oa-ph-sort-active");
+                    TH.dataset.sortDir = sortAsc ? "asc" : "desc";
+                }
+            },
+            afterChange(changes, source) {
+                if (!changes || source === "loadData") return;
+                changes.forEach(([row, prop, , newValue]) => {
+                    if (prop !== "x_dw" && prop !== "x_sccj") return;
+                    const src = historyRows[row];
+                    if (!src) return;
+                    const val = newValue === null || newValue === undefined ? "" : String(newValue).trim();
+                    if (prop === "x_dw") {
+                        src.x_dw = val;
+                    } else {
+                        src.x_sccj = val;
+                    }
+                    queueSave(src.id, src.x_dw || null, src.x_sccj || null);
+                });
+            }
+        });
+
+        hot.addHook("afterOnCellMouseDown", (event, coords) => {
+            if (coords.row === -1) {
+                const meta = columnMeta[coords.col];
+                if (!meta?.sortKey) return;
+                event.stopImmediatePropagation();
+                if (sortBy === meta.sortKey) {
+                    sortAsc = !sortAsc;
+                } else {
+                    sortBy = meta.sortKey;
+                    sortAsc = true;
+                }
+                currentPage = 1;
+                loadHistory();
+                return;
+            }
+
+            if (coords.col === COL_VIEW) {
+                const src = historyRows[coords.row];
+                if (src?.x_wzdh) {
+                    event.stopImmediatePropagation();
+                    openSourceModal(src.x_wzdh);
+                }
+            }
+        });
+    };
+
+    const renderHot = (items) => {
+        historyRows = items || [];
+        const data = historyRows.map(toHotRow);
+        if (hot) {
+            hot.loadData(data);
+            hot.render();
+        }
+    };
+
     const loadHistory = async () => {
-        if (!historyTbody) return;
-        historyTbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-3">加载中…</td></tr>';
+        const saved = await flushPendingSaves();
+        if (!saved) return;
+
+        if (hot) {
+            hot.loadData([]);
+        }
 
         const params = new URLSearchParams({
             page: String(currentPage),
@@ -138,46 +392,19 @@
             const data = await resp.json();
             if (!data.success) {
                 setInfo(data.message || "加载失败", true);
-                historyTbody.innerHTML = '<tr><td colspan="10" class="text-center text-danger py-3">加载失败</td></tr>';
+                renderHot([]);
                 return;
             }
 
             const result = data.result;
-            renderHistory(result.items || []);
+            totalCount = result.totalCount || 0;
+            renderHot(result.items || []);
             updatePager(result);
-            updateSortHeaders();
-            setInfo(`共 ${result.totalCount} 条记录`);
+            setInfo(`共 ${totalCount} 条记录`);
         } catch (err) {
             setInfo("加载失败：" + err.message, true);
-            historyTbody.innerHTML = '<tr><td colspan="10" class="text-center text-danger py-3">加载失败</td></tr>';
+            renderHot([]);
         }
-    };
-
-    const renderHistory = (items) => {
-        if (!historyTbody) return;
-        if (!items.length) {
-            historyTbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-3">无数据</td></tr>';
-            return;
-        }
-
-        historyTbody.innerHTML = items.map((row) => {
-            const suspectBadge = row.isSuspect
-                ? `<span class="badge text-bg-warning oa-ph-badge-suspect" title="${escapeHtml(row.suspectReason || "")}">异常</span>`
-                : '<span class="text-muted">—</span>';
-            const trClass = row.isSuspect ? "oa-ph-row-suspect" : "";
-            return `<tr class="${trClass} oa-ph-history-row" data-wzdh="${escapeHtml(row.x_wzdh)}" style="cursor:pointer">
-                <td>${escapeHtml(row.x_mc || "—")}</td>
-                <td class="small">${escapeHtml(row.ggxh || "—")}</td>
-                <td class="text-end">${fmtMoney(row.last_price)}</td>
-                <td class="text-end">${fmtMoney(row.avg_price)}</td>
-                <td class="text-end">${fmtDeviation(row.deviationPercent, row.isSuspect)}</td>
-                <td class="text-end">${fmtMoney(row.min_price)}</td>
-                <td class="text-end">${fmtMoney(row.max_price)}</td>
-                <td class="text-end">${row.avg_count ?? 0}</td>
-                <td class="small">${escapeHtml(row.last_fabh || "—")}</td>
-                <td>${suspectBadge}</td>
-            </tr>`;
-        }).join("");
     };
 
     const updatePager = (result) => {
@@ -423,6 +650,9 @@
             return;
         }
 
+        const saved = await flushPendingSaves();
+        if (!saved) return;
+
         refreshSpBtn.disabled = true;
         setInfo("正在重新生成历史价格，请稍候…");
 
@@ -440,13 +670,74 @@
         }
     };
 
-    const escapeHtml = (s) => {
-        if (s === null || s === undefined) return "";
-        return String(s)
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;");
+    const doBatchApply = async () => {
+        const dw = batchDwInput?.value?.trim() ?? "";
+        const sccj = batchSccjInput?.value?.trim() ?? "";
+        if (!dw && !sccj) {
+            setInfo("请至少填写单位或厂商", true);
+            return;
+        }
+
+        const saved = await flushPendingSaves();
+        if (!saved) return;
+
+        const kw = searchInput?.value?.trim() || "";
+        const suspectOnly = onlySuspect?.checked ?? false;
+        const filterDesc = [
+            kw ? `关键词「${kw}」` : "无关键词（全部记录）",
+            suspectOnly ? "仅疑似异常" : ""
+        ].filter(Boolean).join("，");
+
+        const countParams = new URLSearchParams({
+            page: "1",
+            pageSize: "1",
+            onlySuspect: suspectOnly ? "true" : "false",
+            sortBy,
+            sortAsc: sortAsc ? "true" : "false"
+        });
+        if (kw) countParams.set("keyword", kw);
+
+        let matchCount = totalCount;
+        try {
+            const resp = await fetch(`${listUrl}?${countParams.toString()}`);
+            const data = await resp.json();
+            if (data.success) {
+                matchCount = data.result?.totalCount ?? 0;
+            }
+        } catch {
+            // use cached totalCount
+        }
+
+        if (matchCount === 0) {
+            setInfo("当前筛选条件下没有匹配记录", true);
+            return;
+        }
+
+        const warnAll = !kw && !suspectOnly;
+        const msg = warnAll
+            ? `将对全部 ${matchCount} 条历史价格记录批量设置单位/厂商，是否继续？`
+            : `将对当前筛选的 ${matchCount} 条记录（${filterDesc}）批量设置，是否继续？`;
+        if (!confirm(msg)) return;
+
+        if (batchApplyBtn) batchApplyBtn.disabled = true;
+
+        try {
+            const payload = {
+                keyword: kw || null,
+                onlySuspect: suspectOnly,
+                x_dw: dw || null,
+                x_sccj: sccj || null
+            };
+            const data = await postJson(batchUpdateUrl, payload);
+            setInfo(data.message || (data.success ? "完成" : "失败"), !data.success);
+            if (data.success) {
+                await loadHistory();
+            }
+        } catch (err) {
+            setInfo("批量设置失败：" + err.message, true);
+        } finally {
+            if (batchApplyBtn) batchApplyBtn.disabled = false;
+        }
     };
 
     const switchTab = (tab) => {
@@ -454,6 +745,7 @@
         historyPanel?.classList.toggle("d-none", !isHistory);
         exclusionsPanel?.classList.toggle("d-none", isHistory);
         historyToolbar?.classList.toggle("d-none", !isHistory);
+        batchToolbar?.classList.toggle("d-none", !isHistory);
 
         mainTabs?.querySelectorAll(".nav-link").forEach((btn) => {
             btn.classList.toggle("active", btn.dataset.tab === tab);
@@ -462,6 +754,7 @@
         if (isHistory) {
             loadHistory();
         } else {
+            flushPendingSaves();
             loadExclusions();
         }
     };
@@ -486,41 +779,23 @@
         loadHistory();
     });
 
-    prevPageBtn?.addEventListener("click", () => {
-        if (currentPage > 1) {
-            currentPage--;
-            loadHistory();
-        }
+    prevPageBtn?.addEventListener("click", async () => {
+        if (currentPage <= 1) return;
+        const saved = await flushPendingSaves();
+        if (!saved) return;
+        currentPage--;
+        loadHistory();
     });
 
-    nextPageBtn?.addEventListener("click", () => {
+    nextPageBtn?.addEventListener("click", async () => {
+        const saved = await flushPendingSaves();
+        if (!saved) return;
         currentPage++;
         loadHistory();
     });
 
     refreshSpBtn?.addEventListener("click", doRefresh);
-
-    historyTheadRow?.addEventListener("click", (e) => {
-        const th = e.target.closest(".oa-ph-sortable");
-        if (!th) return;
-        const col = th.dataset.sort;
-        if (!col) return;
-        if (sortBy === col) {
-            sortAsc = !sortAsc;
-        } else {
-            sortBy = col;
-            sortAsc = true;
-        }
-        currentPage = 1;
-        updateSortHeaders();
-        loadHistory();
-    });
-
-    historyTbody?.addEventListener("click", (e) => {
-        const row = e.target.closest(".oa-ph-history-row");
-        if (!row) return;
-        openSourceModal(row.dataset.wzdh);
-    });
+    batchApplyBtn?.addEventListener("click", doBatchApply);
 
     excludeWholeBtn?.addEventListener("click", async () => {
         const selected = getSelectedSourceRows();
@@ -567,6 +842,6 @@
         }
     });
 
-    updateSortHeaders();
+    initHot();
     switchTab("history");
 })();

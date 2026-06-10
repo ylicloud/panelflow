@@ -2638,7 +2638,7 @@
         additionalItemsBody?.classList.remove("is-collapsed");
         if (additionalItemsChevron) additionalItemsChevron.className = "bi bi-chevron-down";
         hotContainerEl?.classList.add("is-hidden-panel");
-        componentUsagePanel?.classList.add("d-none");
+        usageDrawer.close();
         document.getElementById("fill-price-action-buttons")?.style.setProperty("display", "none");
     };
 

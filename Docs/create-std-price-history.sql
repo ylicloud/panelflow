@@ -140,8 +140,10 @@ BEGIN
         UPDATE SET
             target.ggxh       = source.ggxh,
             target.x_mc       = source.x_mc,
-            target.x_dw       = source.x_dw,
-            target.x_sccj     = source.x_sccj,
+            target.x_dw       = CASE WHEN NULLIF(LTRIM(RTRIM(target.x_dw)), '') IS NOT NULL
+                                     THEN target.x_dw ELSE source.x_dw END,
+            target.x_sccj     = CASE WHEN NULLIF(LTRIM(RTRIM(target.x_sccj)), '') IS NOT NULL
+                                     THEN target.x_sccj ELSE source.x_sccj END,
             target.last_price = source.last_price,
             target.last_fabh  = source.last_fabh,
             target.last_date  = source.last_date,

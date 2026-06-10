@@ -18,7 +18,7 @@ public class QuotationTreeNode
     /// <summary>是否本次操作新挂入的节点。</summary>
     public bool IsNew { get; set; }
 
-    /// <summary>来源字典 SortOrder；用于挂入后同级排序，进而决定重编码后的 x_bm。</summary>
+    /// <summary>来源字典 SortOrder；新挂入块内排序，整块追加到同级末尾后经重编码写入 x_bm。</summary>
     public int DictSortOrder { get; set; }
 
     public BjbRowSnapshot Data { get; set; } = new();

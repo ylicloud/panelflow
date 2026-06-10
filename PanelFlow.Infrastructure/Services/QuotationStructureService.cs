@@ -550,7 +550,7 @@ VALUES
 
     /// <summary>
     /// 字典项 → BJB 行字段：Name→x_mc、Xlx→x_lx、Ggxh→x_ggxh、Amount→x_sl、DefaultUnit→x_dw；
-    /// SortOrder 经同级排序 + 重编码写入 x_bm。
+    /// 新挂入块追加到同级末尾（块内按 SortOrder），再经重编码写入 x_bm。
     /// </summary>
     private static QuotationTreeNode CreateNodeFromDict(ElementDictDto dict, QuotationTreeNode? parent)
     {
@@ -582,23 +582,37 @@ VALUES
             && string.Equals(c.Data.Xggxh.Trim(), dictGgxh, StringComparison.OrdinalIgnoreCase));
     }
 
-    /// <summary>按字典 SortOrder 重排同级节点，已有节点以 x_bm 后缀为序。</summary>
+    /// <summary>
+    /// 挂入后重排同级：已有节点保持 x_bm 后缀序；本次新挂入项作为整体追加到末尾，块内按字典 SortOrder。
+    /// 第2级器件仍固定首位。
+    /// </summary>
     private static void SortChildrenByDictOrder(List<QuotationTreeNode> children, int level)
     {
         if (children.Count <= 1) return;
 
-        IEnumerable<QuotationTreeNode> ordered = level == 2
-            ? children.OrderBy(n => n.IsLockedDevice ? 0 : 1).ThenBy(GetDictSortKey)
-            : children.OrderBy(GetDictSortKey);
+        var locked = level == 2
+            ? children.Where(n => n.IsLockedDevice).OrderBy(GetCodeSuffixKey).ToList()
+            : [];
+        var lockedSet = locked.Count > 0 ? locked.ToHashSet() : null;
 
-        var sorted = ordered.ToList();
+        var rest = lockedSet != null
+            ? children.Where(n => !lockedSet.Contains(n))
+            : children;
+
+        var existing = rest.Where(n => !n.IsNew).OrderBy(GetCodeSuffixKey).ToList();
+        var newlyAdded = rest.Where(n => n.IsNew)
+            .OrderBy(n => n.DictSortOrder)
+            .ThenBy(n => n.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
         children.Clear();
-        children.AddRange(sorted);
+        children.AddRange(locked);
+        children.AddRange(existing);
+        children.AddRange(newlyAdded);
     }
 
-    private static int GetDictSortKey(QuotationTreeNode node)
+    private static int GetCodeSuffixKey(QuotationTreeNode node)
     {
-        if (node.DictSortOrder > 0) return node.DictSortOrder;
         var code = node.EffectiveCode;
         return code.Length >= 4 && int.TryParse(code[^4..], NumberStyles.None, CultureInfo.InvariantCulture, out var seq)
             ? seq

@@ -6,8 +6,11 @@
     var removeExclusionUrl = Url.Action("RemoveExclusion", "PriceHistory") ?? string.Empty;
     var exclusionsUrl = Url.Action("Exclusions", "PriceHistory") ?? string.Empty;
     var refreshUrl = Url.Action("Refresh", "PriceHistory") ?? string.Empty;
+    var updateUrl = Url.Action("UpdateAttributes", "PriceHistory") ?? string.Empty;
+    var batchUpdateUrl = Url.Action("BatchUpdateAttributes", "PriceHistory") ?? string.Empty;
 }
 
+<link rel="stylesheet" href="~/lib/handsontable/handsontable.full.min.css" />
 <link rel="stylesheet" href="~/css/price-history-maintain.css" asp-append-version="true" />
 
 <div class="oa-card mb-3">
@@ -22,7 +25,7 @@
         </ul>
         <div class="d-flex flex-wrap align-items-center gap-2" id="history-toolbar">
             <input id="search-input" type="search" class="form-control form-control-sm oa-ph-search"
-                   placeholder="搜索型号/名称/方案号…" />
+                   placeholder="搜索型号/名称/单位/厂商/方案号…" />
             <div class="form-check form-switch mb-0">
                 <input class="form-check-input" type="checkbox" id="only-suspect" />
                 <label class="form-check-label small" for="only-suspect">只看疑似异常</label>
@@ -32,35 +35,27 @@
             </button>
         </div>
     </div>
+    <div class="d-flex flex-wrap align-items-center gap-2 mt-2" id="batch-toolbar">
+        <span class="small text-muted">批量设置（当前筛选结果）：</span>
+        <input id="batch-dw-input" type="text" class="form-control form-control-sm oa-ph-batch-field"
+               maxlength="10" placeholder="单位" />
+        <input id="batch-sccj-input" type="text" class="form-control form-control-sm oa-ph-batch-field"
+               maxlength="100" placeholder="厂商" />
+        <button id="batch-apply-btn" type="button" class="btn btn-sm btn-outline-primary">
+            应用到搜索结果
+        </button>
+    </div>
     <div id="page-info-bar" class="small text-muted mt-2"></div>
     <div class="small text-muted mt-1">
         异常判定：最新价偏离均价超过 20%（低价元件如端子、保险丝只要均价与最新价接近即视为正常）。
         剔除异常来源后请点击「重新生成历史价格」刷新聚合表；不修改已成立报价单的 BJB 原始数据。
+        单位、厂商可直接在表格中编辑；已填写的单位/厂商在重新生成时不会被 BJB 来源覆盖。
     </div>
 </div>
 
 <div class="oa-card" id="history-panel">
-    <div class="table-responsive">
-        <table class="table table-sm table-hover align-middle mb-0">
-            <thead>
-                <tr id="history-thead-row">
-                    <th class="oa-ph-sortable" data-sort="x_mc" role="button">元件名称</th>
-                    <th class="oa-ph-sortable oa-ph-sort-active" data-sort="ggxh" data-sort-dir="asc" role="button">规格型号</th>
-                    <th class="oa-ph-sortable text-end" data-sort="last_price" role="button">最新价</th>
-                    <th class="oa-ph-sortable text-end" data-sort="avg_price" role="button">均价</th>
-                    <th class="oa-ph-sortable text-end" data-sort="deviation" role="button">偏离</th>
-                    <th class="oa-ph-sortable text-end" data-sort="min_price" role="button">最低</th>
-                    <th class="oa-ph-sortable text-end" data-sort="max_price" role="button">最高</th>
-                    <th class="oa-ph-sortable text-end" data-sort="avg_count" role="button">样本</th>
-                    <th class="oa-ph-sortable" data-sort="last_fabh" role="button">最新来源</th>
-                    <th class="oa-ph-sortable" data-sort="status" style="width:90px" role="button">状态</th>
-                </tr>
-            </thead>
-            <tbody id="history-tbody">
-                <tr><td colspan="10" class="text-center text-muted py-3">加载中…</td></tr>
-            </tbody>
-        </table>
-    </div>
+    <div id="history-hot-container"
+         data-license-key="53ea8-c2678-49b80-cb40f-4dad4"></div>
     <div class="d-flex justify-content-between align-items-center mt-2 px-1">
         <span id="history-pager-info" class="small text-muted"></span>
         <div class="btn-group btn-group-sm">
@@ -154,8 +149,11 @@
      data-exclude-url="@excludeUrl"
      data-remove-exclusion-url="@removeExclusionUrl"
      data-exclusions-url="@exclusionsUrl"
-     data-refresh-url="@refreshUrl"></div>
+     data-refresh-url="@refreshUrl"
+     data-update-url="@updateUrl"
+     data-batch-update-url="@batchUpdateUrl"></div>
 
 @section Scripts {
+    <script src="~/lib/handsontable/handsontable.full.min.js"></script>
     <script src="~/js/price-history-maintain.js" asp-append-version="true"></script>
 }

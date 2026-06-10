@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using PanelFlow.Core.Interfaces;
+using PanelFlow.Core.Models;
 using PanelFlow.Core.Services;
 using PanelFlow.Web.Extensions;
 using PanelFlow.Web.Filters;
@@ -77,6 +78,23 @@ public class PriceHistoryController : Controller
     {
         var (success, message) = await _service.RefreshHistoryAsync(CurrentUserName());
         return Json(new { success, message });
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> UpdateAttributes([FromBody] List<PriceHistoryAttributeUpdateItem> items)
+    {
+        var (success, message) = await _service.UpdateAttributesAsync(items ?? [], CurrentUserName());
+        return Json(new { success, message });
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> BatchUpdateAttributes([FromBody] PriceHistoryBatchUpdateRequest request)
+    {
+        var (success, message, affectedCount) = await _service.BatchUpdateAttributesAsync(
+            request ?? new PriceHistoryBatchUpdateRequest(), CurrentUserName());
+        return Json(new { success, message, affectedCount });
     }
 
     private string CurrentUserName() =>
