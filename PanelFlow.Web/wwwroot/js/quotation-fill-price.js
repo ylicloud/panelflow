@@ -2754,7 +2754,7 @@
                 return meta;
             },
             afterChange(changes, source) {
-                if (!changes || source === "loadData") return;
+                if (!changes || source === "loadData" || globalReadOnly) return;
                 clearTimeout(additionalSaveTimer);
                 additionalSaveTimer = setTimeout(() => saveAdditionalItems(), 600);
                 updateAdditionalTotal();
@@ -2975,7 +2975,7 @@
                 return {};
             },
             afterChange(changes, source) {
-                if (!changes || source === "loadData") return;
+                if (!changes || source === "loadData" || globalReadOnly) return;
                 clearTimeout(attrSaveTimer);
                 attrSaveTimer = setTimeout(() => saveAttrItems(), 600);
                 updateAttrTotal();

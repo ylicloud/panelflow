@@ -18,4 +18,9 @@ public class QuotationPriceViewModel
     /// 用于前端控制"引用历史报价"按钮和保存按钮的显示。
     /// </summary>
     public bool CanEdit { get; set; }
+
+    /// <summary>
+    /// 是否为只读详情页（Details 与 FillPrice 共用模板时设为 true）。
+    /// </summary>
+    public bool IsReadOnlyView { get; set; }
 }

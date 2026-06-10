@@ -352,7 +352,9 @@ public class QuotationController : Controller
 
         ViewData["Title"] = "报价单详情";
         ViewData["BreadcrumbTitle"] = "报价单详情";
-        return View(viewModel);
+        viewModel.IsReadOnlyView = true;
+        viewModel.CanEdit = false;
+        return View("FillPrice", viewModel);
     }
 
     private async Task<QuotationPriceViewModel?> BuildQuotationPriceViewModelAsync(string id, string activeSection)

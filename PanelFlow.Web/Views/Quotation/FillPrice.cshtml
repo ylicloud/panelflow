@@ -1,18 +1,19 @@
 ﻿@model PanelFlow.Web.Models.Quotation.QuotationPriceViewModel
 @{
-    ViewData["Title"] = "报价";
+    var isReadOnly = Model.IsReadOnlyView;
+    ViewData["Title"] = isReadOnly ? "报价单详情" : "报价";
     var cabinetComponentsUrl = Url.Action("GetCabinetComponents", "Quotation", new { id = Model.QuotationNo }) ?? string.Empty;
     var projectComponentSummaryUrl = Url.Action("GetProjectComponentSummary", "Quotation", new { id = Model.QuotationNo }) ?? string.Empty;
-    var saveProjectSummaryUrl = Url.Action("SaveProjectComponentSummary", "Quotation", new { id = Model.QuotationNo }) ?? string.Empty;
-    var cabinetRefBjUrl = Url.Action("GetCabinetReferenceBj", "Quotation", new { id = Model.QuotationNo }) ?? string.Empty;
-    var referencePriceUrl = Url.Action("GetReferencePrice", "Quotation", new { id = Model.QuotationNo }) ?? string.Empty;
+    var saveProjectSummaryUrl = isReadOnly ? string.Empty : (Url.Action("SaveProjectComponentSummary", "Quotation", new { id = Model.QuotationNo }) ?? string.Empty);
+    var cabinetRefBjUrl = isReadOnly ? string.Empty : (Url.Action("GetCabinetReferenceBj", "Quotation", new { id = Model.QuotationNo }) ?? string.Empty);
+    var referencePriceUrl = isReadOnly ? string.Empty : (Url.Action("GetReferencePrice", "Quotation", new { id = Model.QuotationNo }) ?? string.Empty);
     var autoFillPriceUrl = Url.Action("AutoFillPriceFromHistory", "Quotation") ?? string.Empty;
     var fillProgressUrl = Url.Action("GetProjectFillProgress", "Quotation", new { id = Model.QuotationNo }) ?? string.Empty;
-    var wzdhSyncStatsUrl = Url.Action("GetComponentWzdhSyncStats", "Quotation", new { id = Model.QuotationNo }) ?? string.Empty;
-    var applyPriceByWzdhUrl = Url.Action("ApplyComponentPriceByWzdh", "Quotation", new { id = Model.QuotationNo }) ?? string.Empty;
+    var wzdhSyncStatsUrl = isReadOnly ? string.Empty : (Url.Action("GetComponentWzdhSyncStats", "Quotation", new { id = Model.QuotationNo }) ?? string.Empty);
+    var applyPriceByWzdhUrl = isReadOnly ? string.Empty : (Url.Action("ApplyComponentPriceByWzdh", "Quotation", new { id = Model.QuotationNo }) ?? string.Empty);
     var additionalItemsUrl = Url.Action("GetCabinetAdditionalItems", "Quotation", new { id = Model.QuotationNo }) ?? string.Empty;
     var attributeItemsUrl = Url.Action("GetAttributeItems", "Quotation", new { id = Model.QuotationNo }) ?? string.Empty;
-    var saveLeafItemsUrl = Url.Action("SaveLeafItemFields", "Quotation") ?? string.Empty;
+    var saveLeafItemsUrl = isReadOnly ? string.Empty : (Url.Action("SaveLeafItemFields", "Quotation") ?? string.Empty);
 }
 <link rel="stylesheet" href="~/lib/handsontable/handsontable.full.min.css" />
 <style>
@@ -128,6 +129,13 @@
 <div class="oa-card mb-2">
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
         <div class="d-flex align-items-center gap-2 flex-wrap">
+            @if (isReadOnly)
+            {
+                <h5 class="fw-bold mb-0">
+                    <i class="bi bi-eye me-2 text-primary"></i>报价单详情
+                </h5>
+                <span class="badge bg-secondary-subtle text-secondary-emphasis border">只读</span>
+            }
             <button id="toggle-tree-btn" type="button" class="btn btn-sm btn-outline-secondary">
                 <i class="bi bi-layout-sidebar-inset me-1"></i>隐藏目录树
             </button>
@@ -135,12 +143,15 @@
                 <button id="view-cabinet-btn" type="button" class="btn btn-primary" title="按控制柜查看">
                     <i class="bi bi-grid-1x2 me-1"></i>柜体视图
                 </button>
-                <button id="view-attr-btn" type="button" class="btn btn-outline-primary" title="按属性跨柜批量填写">
+                <button id="view-attr-btn" type="button" class="btn btn-outline-primary" title="@(isReadOnly ? "按属性跨柜查看" : "按属性跨柜批量填写")">
                     <i class="bi bi-table me-1"></i>属性视图
                 </button>
             </div>
             <span class="small text-muted">报价单：<span class="fw-semibold text-dark">@Model.QuotationNo</span></span>
-            <span id="unsaved-badge" class="unsaved-badge"><i class="bi bi-exclamation-circle me-1"></i>未保存</span>
+            @if (!isReadOnly)
+            {
+                <span id="unsaved-badge" class="unsaved-badge"><i class="bi bi-exclamation-circle me-1"></i>未保存</span>
+            }
         </div>
         <div class="d-flex align-items-center gap-2 flex-wrap">
             <div id="fill-progress-badge" class="d-inline-flex align-items-center gap-2"
@@ -157,7 +168,7 @@
                     <i class="bi bi-exclamation-triangle me-1"></i>异常 <span id="anomaly-count">0</span>
                 </button>
             </div>
-            @if (Model.CanEdit)
+            @if (Model.CanEdit && !isReadOnly)
             {
                 <button id="auto-fill-price-btn" type="button" class="btn btn-sm btn-outline-warning"
                         data-auto-fill-url="@autoFillPriceUrl"
@@ -173,15 +184,28 @@
         <span><span class="legend-swatch sw-empty"></span>空 / 0（未填写）</span>
         <span><span class="legend-swatch sw-negative"></span>负数（必须修正）</span>
         <span><span class="legend-swatch sw-deviation"></span>偏离均价 ±20%</span>
+        @if (!isReadOnly)
+        {
+            <span class="text-muted">|</span>
+            <span><span class="legend-swatch sw-ref"></span>参考价格列</span>
+        }
         <span class="text-muted">|</span>
-        <span><span class="legend-swatch sw-ref"></span>参考价格列</span>
         <span><span class="legend-swatch sw-amount"></span>金额列</span>
     </div>
 </div>
 
-<div id="page-info-bar" class="alert alert-info py-2 px-3 small mb-2">
-    提示：柜体视图 — 点击控制柜填写附加费用项，点击「器件」填写元件明细；属性视图 — 按属性跨柜批量填写；点击根节点可查看项目元件汇总。
-</div>
+@if (isReadOnly)
+{
+    <div id="page-info-bar" class="alert alert-secondary py-2 px-3 small mb-2">
+        本页为只读查看：柜体视图 — 点击控制柜查看附加费用项，点击「器件」查看元件明细；属性视图 — 按属性跨柜浏览；点击根节点可查看项目元件汇总；汇总视图中点击行可查看使用控制柜。
+    </div>
+}
+else
+{
+    <div id="page-info-bar" class="alert alert-info py-2 px-3 small mb-2">
+        提示：柜体视图 — 点击控制柜填写附加费用项，点击「器件」填写元件明细；属性视图 — 按属性跨柜批量填写；点击根节点可查看项目元件汇总。
+    </div>
+}
 
 <div class="price-workspace view-mode-cabinet" id="price-workspace">
     @* ══ 柜体视图：左侧树 ══ *@
@@ -322,13 +346,19 @@
                     <div id="hot-additional-container"
                          class="border rounded mt-1"
                          data-additional-url="@additionalItemsUrl"
-                         data-save-leaf-url="@saveLeafItemsUrl"
+                         @if (!isReadOnly)
+                         {
+                             @:data-save-leaf-url="@saveLeafItemsUrl"
+                         }
                          data-quotation-no="@Model.QuotationNo"
                          data-license-key="53ea8-c2678-49b80-cb40f-4dad4">
                     </div>
-                    <div class="small text-muted mt-1">
-                        <i class="bi bi-info-circle me-1"></i>价格修改自动写入数据库，无需手动保存
-                    </div>
+                    @if (!isReadOnly)
+                    {
+                        <div class="small text-muted mt-1">
+                            <i class="bi bi-info-circle me-1"></i>价格修改自动写入数据库，无需手动保存
+                        </div>
+                    }
                 </div>
             </div>
 
@@ -337,6 +367,10 @@
                  class="border rounded flex-grow-1 is-hidden-panel"
                  style="min-height: 120px;"
                  data-license-key="53ea8-c2678-49b80-cb40f-4dad4"
+                 @if (isReadOnly)
+                 {
+                     @:data-read-only="true"
+                 }
                  data-components-url="@cabinetComponentsUrl"
                  data-project-summary-url="@projectComponentSummaryUrl"
                  data-save-project-summary-url="@saveProjectSummaryUrl"
@@ -346,17 +380,20 @@
                  data-apply-price-by-wzdh-url="@applyPriceByWzdhUrl"
                  data-quotation-no="@Model.QuotationNo">
             </div>
-            <div id="fill-price-action-buttons" class="d-flex flex-wrap align-items-center gap-2 mt-2 flex-shrink-0">
-                <form id="price-save-form" class="d-none" method="post">
-                    @Html.AntiForgeryToken()
-                </form>
-                @if (Model.CanEdit)
-                {
-                    <span class="small text-muted">
-                        <i class="bi bi-info-circle me-1"></i>价格修改自动写入数据库，无需手动保存（不允许增删行）
-                    </span>
-                }
-            </div>
+            @if (!isReadOnly)
+            {
+                <div id="fill-price-action-buttons" class="d-flex flex-wrap align-items-center gap-2 mt-2 flex-shrink-0">
+                    <form id="price-save-form" class="d-none" method="post">
+                        @Html.AntiForgeryToken()
+                    </form>
+                    @if (Model.CanEdit)
+                    {
+                        <span class="small text-muted">
+                            <i class="bi bi-info-circle me-1"></i>价格修改自动写入数据库，无需手动保存（不允许增删行）
+                        </span>
+                    }
+                </div>
+            }
         </div>
     </div>
 
@@ -372,7 +409,7 @@
                 <div class="d-flex align-items-center gap-2">
                     <span class="text-muted">合计金额：</span>
                     <span id="attr-node-total" class="fw-bold text-secondary">¥0.00</span>
-                    @if (Model.CanEdit)
+                    @if (Model.CanEdit && !isReadOnly)
                     {
                         <button id="batch-fill-btn" type="button" class="btn btn-sm btn-outline-success d-none"
                                 title="以首个有规格且单价>0的行为模板，批量填充所有空行">
@@ -385,13 +422,19 @@
                  class="border rounded flex-grow-1"
                  style="min-height: 120px;"
                  data-attribute-url="@attributeItemsUrl"
-                 data-save-leaf-url="@saveLeafItemsUrl"
+                 @if (!isReadOnly)
+                 {
+                     @:data-save-leaf-url="@saveLeafItemsUrl"
+                 }
                  data-quotation-no="@Model.QuotationNo"
                  data-license-key="53ea8-c2678-49b80-cb40f-4dad4">
             </div>
-            <div class="small text-muted mt-2 flex-shrink-0">
-                <i class="bi bi-info-circle me-1"></i>价格修改自动写入数据库，无需手动保存
-            </div>
+            @if (!isReadOnly)
+            {
+                <div class="small text-muted mt-2 flex-shrink-0">
+                    <i class="bi bi-info-circle me-1"></i>价格修改自动写入数据库，无需手动保存
+                </div>
+            }
         </div>
     </div>
 </div>
