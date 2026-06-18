@@ -8,5 +8,6 @@
 | [customer-and-contacts.md](customer-and-contacts.md) | 客户 `KHYLB`、联系人 `KHYLB_CONTACT` |
 | [quotation.md](quotation.md) | 报价单 `BJFAT`、`BJB` |
 | [quotation-reimport-sop.md](quotation-reimport-sop.md) | 报价单重新导入 Excel 操作指引（不改代码） |
+| [price-query-api.md](price-query-api.md) | 元件历史价格查询 API（`/api/price`） |
 
 字段级映射见 `../database-mapping.md`。

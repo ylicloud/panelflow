@@ -141,7 +141,7 @@ public class PermissionService : IPermissionService
                 AllowedRoles = [.. purchaseRoles],
                 Children =
                 [
-                    new() { Title = "采购订单", Icon = "bi-bag", Url = "/Purchase/Index",
+                    new() { Title = "采购计划执行", Icon = "bi-bag", Url = "/Purchase/Index",
                         AllowedRoles = [.. purchaseRoles] },
                     new() { Title = "到货验收", Icon = "bi-box-seam", Url = "/Receipt/Index",
                         AllowedRoles = [.. purchaseRoles] },

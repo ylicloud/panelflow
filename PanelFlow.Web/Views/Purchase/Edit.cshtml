@@ -1,0 +1,56 @@
+@model PanelFlow.Web.Models.Purchase.PurchasePlanEditViewModel
+@using PanelFlow.Core.Models
+@{
+    ViewData["Title"] = $"采购验证 {Model.Plan.PlanNo}";
+    var plan = Model.Plan;
+}
+
+<link rel="stylesheet" href="~/lib/handsontable/handsontable.full.min.css" />
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <h5 class="fw-bold mb-0"><i class="bi bi-patch-check me-2"></i>采购验证 @plan.PlanNo</h5>
+    <div class="d-flex flex-wrap gap-2">
+        <button type="button" id="btnSave" class="btn btn-sm btn-primary"><i class="bi bi-save me-1"></i>保存验证</button>
+        <div class="btn-group">
+            <a href="@Url.Action("PrintReport2", new { id = plan.Id })" class="btn btn-sm btn-outline-secondary" target="_blank">验证记录 PDF</a>
+            <a href="@Url.Action("PrintReport1", new { id = plan.Id })" class="btn btn-sm btn-outline-secondary" target="_blank">计划表 PDF</a>
+        </div>
+        <a href="@Url.Action("Index")" class="btn btn-sm btn-outline-secondary">返回</a>
+    </div>
+</div>
+
+@if (TempData["SuccessMessage"] != null)
+{
+    <div class="alert alert-success py-2 small">@TempData["SuccessMessage"]</div>
+}
+@if (TempData["ErrorMessage"] != null)
+{
+    <div class="alert alert-danger py-2 small">@TempData["ErrorMessage"]</div>
+}
+
+<div class="oa-card mb-3">
+    <div class="row g-2 small">
+        <div class="col-md-3"><strong>方案编号：</strong>@plan.Fabh</div>
+        <div class="col-md-3"><strong>合同编号：</strong>@(plan.ContractNo ?? "—")</div>
+        <div class="col-md-3"><strong>合同名称：</strong>@(plan.ContractName ?? "—")</div>
+        <div class="col-md-3"><strong>状态：</strong>@plan.StatusText</div>
+    </div>
+</div>
+
+<div class="oa-card p-2">
+    <div id="hotContainer"></div>
+</div>
+
+@Html.AntiForgeryToken()
+
+@section Scripts {
+    <script src="~/lib/handsontable/handsontable.full.min.js"></script>
+    <script>
+        window.purchaseVerify = {
+            planId: @plan.Id,
+            saveUrl: '@Url.Action("SaveVerification", new { id = plan.Id })',
+            items: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(plan.Items, new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase }))
+        };
+    </script>
+    <script src="~/js/purchase-verify.js" asp-append-version="true"></script>
+}

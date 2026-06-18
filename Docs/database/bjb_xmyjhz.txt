@@ -1,0 +1,48 @@
+USE [DKZX_MIS_MSSQL]
+GO
+
+/****** Object:  Table [dbo].[BJB_XMYJHZ]    Script Date: 2026/6/15 15:40:07 ******/
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+CREATE TABLE [dbo].[BJB_XMYJHZ](
+	[fabh] [char](20) NOT NULL,
+	[x_flbh] [char](50) NOT NULL,
+	[x_ggxh] [char](50) NOT NULL,
+	[x_sccj] [char](50) NOT NULL,
+	[x_key_ry] [char](50) NOT NULL,
+	[x_mc] [char](100) NULL,
+	[x_sl] [decimal](18, 2) NOT NULL,
+	[x_je] [decimal](18, 2) NOT NULL,
+	[x_bcg_sl] [decimal](18, 2) NOT NULL,
+	[x_hzjb] [char](100) NOT NULL,
+ CONSTRAINT [PK_BJB_XMYJHZ] PRIMARY KEY CLUSTERED 
+(
+	[fabh] ASC,
+	[x_flbh] ASC,
+	[x_ggxh] ASC,
+	[x_sccj] ASC,
+	[x_key_ry] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+
+ALTER TABLE [dbo].[BJB_XMYJHZ] ADD  CONSTRAINT [DF_BJB_XMYJHZ_x_sccj]  DEFAULT ('') FOR [x_sccj]
+GO
+
+ALTER TABLE [dbo].[BJB_XMYJHZ] ADD  CONSTRAINT [DF_BJB_XMYJHZ_x_sl]  DEFAULT (0) FOR [x_sl]
+GO
+
+ALTER TABLE [dbo].[BJB_XMYJHZ] ADD  CONSTRAINT [DF_BJB_XMYJHZ_x_je]  DEFAULT (0) FOR [x_je]
+GO
+
+ALTER TABLE [dbo].[BJB_XMYJHZ] ADD  CONSTRAINT [DF_BJB_XMYJHZ_x_bcg_sl]  DEFAULT (0) FOR [x_bcg_sl]
+GO
+
+ALTER TABLE [dbo].[BJB_XMYJHZ] ADD  CONSTRAINT [DF_BJB_XMYJHZ_x_hzjb]  DEFAULT ('') FOR [x_hzjb]
+GO
+
+

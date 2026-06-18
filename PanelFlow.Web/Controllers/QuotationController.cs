@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using PanelFlow.Core.Interfaces;
 using PanelFlow.Core.Models;
 using PanelFlow.Core.Services;
+using PanelFlow.Core.Utilities;
 using PanelFlow.Infrastructure.Data;
 using PanelFlow.Infrastructure.Extensions;
 using PanelFlow.Web.Extensions;
@@ -9,7 +11,6 @@ using PanelFlow.Web.Filters;
 using PanelFlow.Web.Helpers;
 using PanelFlow.Web.Models.Quotation;
 using System.ComponentModel.DataAnnotations;
-using Microsoft.EntityFrameworkCore;
 using NPOI.SS.UserModel;
 using NPOI.XSSF.UserModel;
 using System.Globalization;
@@ -767,7 +768,7 @@ WHERE fabh = {quotationNo}
                 x_fdds = x.FloatRate ?? 0m,
                 x_sccj = x.Vendor,
                 // 如果 DB 中 x_wzdh 为空，实时计算
-                x_wzdh = string.IsNullOrWhiteSpace(x.Wzdh) ? NormalizeSpec(x.Spec) : x.Wzdh
+                x_wzdh = string.IsNullOrWhiteSpace(x.Wzdh) ? SpecNormalizer.Normalize(x.Spec) : x.Wzdh
             })
             .ToList();
 
@@ -862,7 +863,7 @@ ORDER BY b.x_bm",
 
         // 计算每行的 x_wzdh（DB 为空时实时计算）
         var wzdhList = components
-            .Select(x => string.IsNullOrWhiteSpace(x.Wzdh) ? NormalizeSpec(x.Spec) : x.Wzdh)
+            .Select(x => string.IsNullOrWhiteSpace(x.Wzdh) ? SpecNormalizer.Normalize(x.Spec) : x.Wzdh)
             .ToList();
 
         // 收集非空的 x_wzdh 用于批量查询
@@ -1084,7 +1085,7 @@ ORDER BY b.x_bm",
                 x.Qty,
                 x.Price,
                 x.Vendor,
-                EffectiveWzdh = string.IsNullOrWhiteSpace(x.Wzdh) ? NormalizeSpec(x.Spec) : x.Wzdh
+                EffectiveWzdh = string.IsNullOrWhiteSpace(x.Wzdh) ? SpecNormalizer.Normalize(x.Spec) : x.Wzdh
             })
             .Where(x => string.Equals(x.EffectiveWzdh, targetWzdh, StringComparison.OrdinalIgnoreCase))
             .ToList();
@@ -1312,14 +1313,14 @@ WHERE fabh = {quotationNo}
         }
 
         // ── 2. 一次性预取所需 STD_PRICE_HISTORY，避免 N+1 ──
-        // 先把 wzdh 兜底好（DB 字段空 → NormalizeSpec(x_ggxh)），再去重，最后查库
+        // 先把 wzdh 兜底好（DB 字段空 → SpecNormalizer.Normalize(x_ggxh)），再去重，最后查库
         var componentInputs = components
             .Select(c => new FillProgressComponentInput(
                 CabinetCode: c.Code[..4],
                 CabinetName: cabinetNames.TryGetValue(c.Code[..4], out var n) ? n : c.Code[..4],
                 Name: c.Name,
                 Spec: c.Spec,
-                EffectiveWzdh: string.IsNullOrWhiteSpace(c.Wzdh) ? NormalizeSpec(c.Spec) : c.Wzdh,
+                EffectiveWzdh: string.IsNullOrWhiteSpace(c.Wzdh) ? SpecNormalizer.Normalize(c.Spec) : c.Wzdh,
                 Price: c.Price))
             .ToList();
 
@@ -1675,7 +1676,7 @@ WHERE fabh = {quotationNo}
         }
 
         var lengthErrors = BjbImportFieldLimits.ValidateImportTable(
-            tableRows, treeNodeNames, NormalizeSpec);
+            tableRows, treeNodeNames, SpecNormalizer.Normalize);
         if (lengthErrors.Count > 0)
         {
             return BadRequest(new
@@ -1693,7 +1694,7 @@ WHERE fabh = {quotationNo}
             if (row.Xlx == 11)
             {
                 row.Xwzdh = BjbImportFieldLimits.Limit(
-                    NormalizeSpec(row.Xggxh), BjbImportFieldLimits.XWzdh);
+                    SpecNormalizer.Normalize(row.Xggxh), BjbImportFieldLimits.XWzdh);
             }
 
             // x_dj = x_bj_dj * (1 + x_fdds / 100)，x_fdds 为 NULL 视为 0
@@ -1815,7 +1816,7 @@ VALUES
                     x.Code,
                     x.Spec,
                     x.BjbDj,
-                    Wzdh = string.IsNullOrWhiteSpace(x.Wzdh) ? NormalizeSpec(x.Spec) : x.Wzdh
+                    Wzdh = string.IsNullOrWhiteSpace(x.Wzdh) ? SpecNormalizer.Normalize(x.Spec) : x.Wzdh
                 })
                 .Where(x => !string.IsNullOrEmpty(x.Wzdh))
                 .ToList();
@@ -2039,7 +2040,7 @@ WHERE fabh = {fabh}
                         Xggxh = component.Spec,
                         Xsccj = component.Vendor,
                         Xwzdh = BjbImportFieldLimits.Limit(
-                            NormalizeSpec(component.Spec), BjbImportFieldLimits.XWzdh),
+                            SpecNormalizer.Normalize(component.Spec), BjbImportFieldLimits.XWzdh),
                         Xdj = component.Price,
                         Xsl = component.Qty,
                         XbjDj = component.Price,
@@ -2203,7 +2204,7 @@ WHERE fabh = {fabh}
                 x.Code,
                 x.Name,
                 x.Spec,
-                EffectiveWzdh = string.IsNullOrWhiteSpace(x.Wzdh) ? NormalizeSpec(x.Spec) : x.Wzdh,
+                EffectiveWzdh = string.IsNullOrWhiteSpace(x.Wzdh) ? SpecNormalizer.Normalize(x.Spec) : x.Wzdh,
                 CabCode = x.Code[..4]
             })
             .Where(x => string.Equals(x.EffectiveWzdh, targetWzdh, StringComparison.OrdinalIgnoreCase))
@@ -2253,45 +2254,6 @@ WHERE fabh = {fabh}
                 x.Spec))
             .OrderBy(x => x.Code, StringComparer.Ordinal)
             .ToList();
-    }
-
-    /// <summary>
-    /// C# 版 F_CleanString：转小写 → 删除不可见字符 → 全角转半角 → 去掉括号内容 → 只保留字母/数字/中文/单位符号。
-    /// 用于生成型号规格的标准化指纹字符串，便于与历史报价比对。
-    /// </summary>
-    internal static string NormalizeSpec(string? input)
-    {
-        if (string.IsNullOrWhiteSpace(input)) return string.Empty;
-
-        var s = input.ToLowerInvariant()
-            .Replace("\r", "").Replace("\n", "").Replace("\t", "")
-            .Replace("\u00A0", "")   // 不间断空格
-            .Replace("\u200B", "");  // 零宽空格
-
-        var sb = new System.Text.StringBuilder(s.Length);
-        var parenDepth = 0;
-
-        foreach (var ch in s)
-        {
-            // 全角转半角
-            var c = ch == '\u3000' ? ' '
-                  : ch >= '\uFF01' && ch <= '\uFF5E' ? (char)(ch - 65248)
-                  : ch;
-            c = char.ToLowerInvariant(c);
-
-            if (c == '(') { parenDepth++; continue; }
-            if (c == ')') { if (parenDepth > 0) parenDepth--; continue; }
-            if (parenDepth > 0) continue;
-
-            // 只保留字母、数字、中文、常见单位符号
-            if (char.IsAsciiLetterOrDigit(c) || (c >= '\u4E00' && c <= '\u9FFF'))
-                sb.Append(c);
-            else if ("μωΩ°±℃φ".IndexOf(c) >= 0)
-                sb.Append(c);
-            // 其余符号（空格、标点等）全部丢弃
-        }
-
-        return sb.ToString();
     }
 
     private static string BuildSummaryMatchKey(IEnumerable<string> codes)

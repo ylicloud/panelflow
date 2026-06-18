@@ -20,6 +20,9 @@ public class ApplicationDbContext : DbContext
     public DbSet<StdPriceHistory> StdPriceHistories { get; set; }
     public DbSet<StdPriceExclusion> StdPriceExclusions { get; set; }
     public DbSet<StdElementDict> StdElementDicts { get; set; }
+    public DbSet<PurchasePlan> PurchasePlans { get; set; }
+    public DbSet<PurchasePlanItem> PurchasePlanItems { get; set; }
+    public DbSet<BjbXmyjhzItem> BjbXmyjhzItems { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -217,6 +220,69 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.Remark).HasColumnName("Remark").HasColumnType("nvarchar(300)");
             entity.Property(e => e.UpdatedAt).HasColumnName("UpdatedAt").HasColumnType("datetime2");
             entity.Property(e => e.UpdatedBy).HasColumnName("UpdatedBy").HasColumnType("nvarchar(50)");
+        });
+
+        modelBuilder.Entity<PurchasePlan>(entity =>
+        {
+            entity.ToTable("PF_PURCHASE_PLAN");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entity.Property(e => e.PlanNo).HasColumnName("plan_no").HasColumnType("varchar(20)").IsRequired();
+            entity.Property(e => e.Fabh).HasColumnName("fabh").HasColumnType("char(20)").IsRequired();
+            entity.Property(e => e.ContractNo).HasColumnName("contract_no").HasColumnType("varchar(20)");
+            entity.Property(e => e.Status).HasColumnName("status");
+            entity.Property(e => e.Creator).HasColumnName("creator").HasColumnType("varchar(10)").IsRequired();
+            entity.Property(e => e.Reviewer).HasColumnName("reviewer").HasColumnType("varchar(10)");
+            entity.Property(e => e.UnitChief).HasColumnName("unit_chief").HasColumnType("varchar(10)");
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at").HasColumnType("datetime");
+            entity.Property(e => e.IssuedAt).HasColumnName("issued_at").HasColumnType("datetime");
+            entity.Property(e => e.IssuedBy).HasColumnName("issued_by").HasColumnType("varchar(10)");
+            entity.HasMany(e => e.Items).WithOne(i => i.Plan).HasForeignKey(i => i.PlanId);
+        });
+
+        modelBuilder.Entity<PurchasePlanItem>(entity =>
+        {
+            entity.ToTable("PF_PURCHASE_PLAN_ITEM");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entity.Property(e => e.PlanId).HasColumnName("plan_id");
+            entity.Property(e => e.SortNo).HasColumnName("sort_no");
+            entity.Property(e => e.ItemName).HasColumnName("item_name").HasColumnType("nvarchar(100)").IsRequired();
+            entity.Property(e => e.ItemSpec).HasColumnName("item_spec").HasColumnType("nvarchar(200)").IsRequired();
+            entity.Property(e => e.ItemUnit).HasColumnName("item_unit").HasColumnType("nvarchar(20)");
+            entity.Property(e => e.ItemQty).HasColumnName("item_qty").HasColumnType("decimal(18,4)");
+            entity.Property(e => e.ItemNoBuyQty).HasColumnName("item_no_buy_qty").HasColumnType("decimal(18,4)");
+            entity.Property(e => e.ItemManufacturer).HasColumnName("item_manufacturer").HasColumnType("nvarchar(100)");
+            entity.Property(e => e.ChangeType).HasColumnName("change_type");
+            entity.Property(e => e.ChangeRemark).HasColumnName("change_remark").HasColumnType("nvarchar(200)");
+            entity.Property(e => e.NeedDate).HasColumnName("need_date").HasColumnType("date");
+            entity.Property(e => e.Remark).HasColumnName("remark").HasColumnType("nvarchar(200)");
+            entity.Property(e => e.HasCert).HasColumnName("has_cert");
+            entity.Property(e => e.HasInspection).HasColumnName("has_inspection");
+            entity.Property(e => e.AppearanceOk).HasColumnName("appearance_ok");
+            entity.Property(e => e.HasAccessories).HasColumnName("has_accessories");
+            entity.Property(e => e.HasDocuments).HasColumnName("has_documents");
+            entity.Property(e => e.VerifyDate).HasColumnName("verify_date").HasColumnType("date");
+            entity.Property(e => e.Conclusion).HasColumnName("conclusion").HasColumnType("nvarchar(50)");
+            entity.Property(e => e.Verifier).HasColumnName("verifier").HasColumnType("varchar(10)");
+            entity.Property(e => e.VerifiedAt).HasColumnName("verified_at").HasColumnType("datetime");
+        });
+
+        modelBuilder.Entity<BjbXmyjhzItem>(entity =>
+        {
+            entity.ToTable("BJB_XMYJHZ");
+            entity.HasKey(e => new { e.fabh, e.x_flbh, e.x_ggxh, e.x_sccj, e.x_key_ry });
+            entity.Property(e => e.fabh).HasColumnName("fabh").HasColumnType("char(20)");
+            entity.Property(e => e.x_flbh).HasColumnName("x_flbh").HasColumnType("char(50)");
+            entity.Property(e => e.x_ggxh).HasColumnName("x_ggxh").HasColumnType("char(50)");
+            entity.Property(e => e.x_sccj).HasColumnName("x_sccj").HasColumnType("char(50)");
+            entity.Property(e => e.x_key_ry).HasColumnName("x_key_ry").HasColumnType("char(50)");
+            entity.Property(e => e.x_mc).HasColumnName("x_mc").HasColumnType("char(100)");
+            entity.Property(e => e.x_dw).HasColumnName("x_dw").HasColumnType("char(10)");
+            entity.Property(e => e.x_sl).HasColumnName("x_sl").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_je).HasColumnName("x_je").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_bcg_sl).HasColumnName("x_bcg_sl").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_hzjb).HasColumnName("x_hzjb").HasColumnType("char(100)");
         });
     }
 }

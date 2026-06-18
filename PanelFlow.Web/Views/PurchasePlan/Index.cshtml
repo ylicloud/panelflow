@@ -1,0 +1,113 @@
+@model PanelFlow.Web.Models.Purchase.PurchasePlanListViewModel
+@using PanelFlow.Core.Models
+@{
+    ViewData["Title"] = Model.IssuedOnly ? "采购计划执行" : "采购计划";
+    var indexAction = Model.IssuedOnly ? "Purchase" : "PurchasePlan";
+}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h5 class="fw-bold mb-0">
+        <i class="bi bi-@(Model.IssuedOnly ? "bag" : "clipboard-data") me-2"></i>@ViewData["Title"]
+    </h5>
+    @if (!Model.IssuedOnly)
+    {
+        <a href="@Url.Action("Create", "PurchasePlan")" class="btn btn-sm btn-primary">
+            <i class="bi bi-plus-lg me-1"></i>新建计划
+        </a>
+    }
+</div>
+
+@if (TempData["SuccessMessage"] != null)
+{
+    <div class="alert alert-success py-2 small alert-dismissible fade show">
+        @TempData["SuccessMessage"]
+        <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="alert"></button>
+    </div>
+}
+@if (TempData["ErrorMessage"] != null)
+{
+    <div class="alert alert-danger py-2 small alert-dismissible fade show">
+        @TempData["ErrorMessage"]
+        <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="alert"></button>
+    </div>
+}
+
+<div class="oa-card mb-3">
+    <form method="get" asp-controller="@indexAction" asp-action="Index" class="row g-2 align-items-center">
+        <div class="col-md-5">
+            <input type="text" name="keyword" value="@Model.Keyword" class="form-control form-control-sm"
+                   placeholder="计划编号 / 方案编号 / 合同编号" />
+        </div>
+        @if (!Model.IssuedOnly)
+        {
+            <div class="col-md-2">
+                <select name="status" class="form-select form-select-sm">
+                    <option value="">全部状态</option>
+                    <option value="0" selected="@(Model.StatusFilter == 0)">草稿</option>
+                    <option value="1" selected="@(Model.StatusFilter == 1)">已下达</option>
+                    <option value="2" selected="@(Model.StatusFilter == 2)">完成</option>
+                </select>
+            </div>
+        }
+        <div class="col-auto">
+            <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-search me-1"></i>查询</button>
+        </div>
+        <div class="col-12 small text-muted">共 @Model.TotalCount 条</div>
+    </form>
+</div>
+
+<div class="oa-card p-0">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0 oa-table">
+            <thead>
+            <tr>
+                <th>计划编号</th>
+                <th>方案编号</th>
+                <th>合同编号</th>
+                <th>合同名称</th>
+                <th class="text-center">状态</th>
+                <th>创建人</th>
+                <th>创建时间</th>
+                <th class="text-center">明细数</th>
+                <th class="text-center" style="width:160px;">操作</th>
+            </tr>
+            </thead>
+            <tbody>
+            @if (Model.Items.Count == 0)
+            {
+                <tr><td colspan="9" class="text-center text-muted py-4">暂无数据</td></tr>
+            }
+            else
+            {
+                foreach (var item in Model.Items)
+                {
+                    <tr>
+                        <td>@item.PlanNo</td>
+                        <td>@item.Fabh</td>
+                        <td>@(item.ContractNo ?? "—")</td>
+                        <td>@(item.ContractName ?? "—")</td>
+                        <td class="text-center">
+                            <span class="badge @(item.Status == PurchasePlanStatus.Draft ? "bg-secondary" : item.Status == PurchasePlanStatus.Issued ? "bg-primary" : "bg-success")">
+                                @item.StatusText
+                            </span>
+                        </td>
+                        <td>@item.Creator</td>
+                        <td>@item.CreatedAt.ToString("yyyy-MM-dd HH:mm")</td>
+                        <td class="text-center">@item.ItemCount</td>
+                        <td class="text-center">
+                            @if (Model.IssuedOnly)
+                            {
+                                <a href="@Url.Action("Edit", "Purchase", new { id = item.Id })" class="btn btn-sm btn-outline-primary">验证</a>
+                            }
+                            else
+                            {
+                                <a href="@Url.Action("Edit", "PurchasePlan", new { id = item.Id })" class="btn btn-sm btn-outline-primary">编辑</a>
+                            }
+                        </td>
+                    </tr>
+                }
+            }
+            </tbody>
+        </table>
+    </div>
+</div>

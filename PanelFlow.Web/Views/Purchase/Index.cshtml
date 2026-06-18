@@ -1,0 +1,83 @@
+@model PanelFlow.Web.Models.Purchase.PurchasePlanListViewModel
+@using PanelFlow.Core.Models
+@{
+    ViewData["Title"] = "采购计划执行";
+    Model.IssuedOnly = true;
+}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h5 class="fw-bold mb-0"><i class="bi bi-bag me-2"></i>采购计划执行</h5>
+</div>
+
+@if (TempData["SuccessMessage"] != null)
+{
+    <div class="alert alert-success py-2 small alert-dismissible fade show">
+        @TempData["SuccessMessage"]
+        <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="alert"></button>
+    </div>
+}
+@if (TempData["ErrorMessage"] != null)
+{
+    <div class="alert alert-danger py-2 small alert-dismissible fade show">
+        @TempData["ErrorMessage"]
+        <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="alert"></button>
+    </div>
+}
+
+<div class="oa-card mb-3">
+    <form method="get" asp-controller="Purchase" asp-action="Index" class="row g-2 align-items-center">
+        <div class="col-md-5">
+            <input type="text" name="keyword" value="@Model.Keyword" class="form-control form-control-sm"
+                   placeholder="计划编号 / 方案编号 / 合同编号" />
+        </div>
+        <div class="col-auto">
+            <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-search me-1"></i>查询</button>
+        </div>
+        <div class="col-12 small text-muted">共 @Model.TotalCount 条（仅显示已下达计划）</div>
+    </form>
+</div>
+
+<div class="oa-card p-0">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0 oa-table">
+            <thead>
+            <tr>
+                <th>计划编号</th>
+                <th>方案编号</th>
+                <th>合同编号</th>
+                <th>合同名称</th>
+                <th class="text-center">状态</th>
+                <th>下达人</th>
+                <th>下达时间</th>
+                <th class="text-center">明细数</th>
+                <th class="text-center" style="width:160px;">操作</th>
+            </tr>
+            </thead>
+            <tbody>
+            @if (Model.Items.Count == 0)
+            {
+                <tr><td colspan="9" class="text-center text-muted py-4">暂无已下达的采购计划</td></tr>
+            }
+            else
+            {
+                foreach (var item in Model.Items)
+                {
+                    <tr>
+                        <td>@item.PlanNo</td>
+                        <td>@item.Fabh</td>
+                        <td>@(item.ContractNo ?? "—")</td>
+                        <td>@(item.ContractName ?? "—")</td>
+                        <td class="text-center"><span class="badge bg-primary">@item.StatusText</span></td>
+                        <td>@(item.IssuedBy ?? "—")</td>
+                        <td>@(item.IssuedAt?.ToString("yyyy-MM-dd HH:mm") ?? "—")</td>
+                        <td class="text-center">@item.ItemCount</td>
+                        <td class="text-center">
+                            <a href="@Url.Action("Edit", new { id = item.Id })" class="btn btn-sm btn-outline-primary">验证</a>
+                        </td>
+                    </tr>
+                }
+            }
+            </tbody>
+        </table>
+    </div>
+</div>

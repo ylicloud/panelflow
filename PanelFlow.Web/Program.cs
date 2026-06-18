@@ -41,6 +41,8 @@ builder.Services.AddScoped<IAuditLogService, AuditLogService>();
 builder.Services.AddScoped<IElementDictService, ElementDictService>();
 builder.Services.AddScoped<IQuotationStructureService, QuotationStructureService>();
 builder.Services.AddScoped<IPriceHistoryService, PriceHistoryService>();
+builder.Services.AddScoped<IPriceQueryService, PriceQueryService>();
+builder.Services.AddScoped<IPurchaseService, PurchaseService>();
 builder.Services.AddSingleton<IPermissionService, PermissionService>();
 
 // ===== Session =====
