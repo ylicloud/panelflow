@@ -13,8 +13,8 @@
     // ============================================================
 
     /**
-     * BJB 字段长度上限（与 databaseStructure.csv / BjbImportFieldLimits.cs 一致）。
-     * 计数口径：trim 后 string.length，等同 SQL Server LEN(LTRIM(RTRIM(col)))。
+     * BJB 字段长度上限（与 BJB 表 char(n) / BjbImportFieldLimits.cs 一致）。
+     * 计数口径：trim 后按 GBK(936) 字节数，对齐 SQL Server 中文 char/varchar。
      */
     const BJB_FIELD_LIMITS = {
         xMc: 50,
@@ -22,16 +22,41 @@
         xSccj: 50
     };
 
-    /** 与 SQL Server LEN(LTRIM(RTRIM(@s))) 一致（UTF-16 码元，中英文各计 1 字） */
+    /**
+     * 对齐 SQL Server 非 Unicode <c>char(n)</c>/<c>varchar(n)</c>（中文排序规则）：
+     * 按代码页 936(GBK) 字节计长，与 C# Encoding.GetEncoding(936).GetByteCount 一致。
+     * ASCII (U+0000–U+007F) = 1 字节；其余常见汉字/全角等 = 2 字节。
+     */
     function sqlLen(text) {
-        return (text ?? "").trim().length;
+        const s = (text ?? "").trim();
+        let bytes = 0;
+        for (let i = 0; i < s.length; i += 1) {
+            const code = s.charCodeAt(i);
+            if (code >= 0xDC00 && code <= 0xDFFF) {
+                continue;
+            }
+            if (code <= 0x7F) {
+                bytes += 1;
+            } else if (code >= 0xD800 && code <= 0xDBFF) {
+                bytes += 2;
+                if (i + 1 < s.length) {
+                    const low = s.charCodeAt(i + 1);
+                    if (low >= 0xDC00 && low <= 0xDFFF) {
+                        i += 1;
+                    }
+                }
+            } else {
+                bytes += 2;
+            }
+        }
+        return bytes;
     }
 
     function appendLengthError(errors, invalidCells, rowIndex, colIndex, value, maxLen, columnLabel) {
         const len = sqlLen(value);
         if (len > maxLen) {
             errors.push(
-                `第 ${rowIndex + 1} 行：第${colIndex + 1}列${columnLabel}超过 ${maxLen} 字（当前 ${len} 字），请缩短后重试`
+                `第 ${rowIndex + 1} 行：第${colIndex + 1}列${columnLabel}超过 ${maxLen} 字节（当前 ${len} 字节，中文约每字 2 字节），请缩短后重试`
             );
             invalidCells.add(`${rowIndex}:${colIndex}`);
         }
@@ -127,7 +152,7 @@
                     const splitLen = sqlLen(splitName);
                     if (splitLen > BJB_FIELD_LIMITS.xMc) {
                         errors.push(
-                            `第 ${rowNo} 行：单元号拆分后的控制柜名称超过 ${BJB_FIELD_LIMITS.xMc} 字（第 ${idx + 1} 个：「${splitName}」，当前 ${splitLen} 字），请缩短单元号或降低拆分数量`
+                            `第 ${rowNo} 行：单元号拆分后的控制柜名称超过 ${BJB_FIELD_LIMITS.xMc} 字节（第 ${idx + 1} 个：「${splitName}」，当前 ${splitLen} 字节），请缩短单元号或降低拆分数量`
                         );
                         invalidCells.add(`${i}:1`);
                     }
@@ -318,6 +343,7 @@
         if (!infoBarEl) {
             return;
         }
+        infoBarEl.replaceChildren();
         infoBarEl.textContent = message || "";
         infoBarEl.classList.remove("alert-info", "alert-success", "alert-danger");
         if (level === "success") {
@@ -327,6 +353,93 @@
         } else {
             infoBarEl.classList.add("alert-info");
         }
+    };
+
+    /**
+     * 跳转到 Handsontable 单元格（入参为界面 1 基行号/列号）。
+     * @param {number} row1Based
+     * @param {number} [col1Based=1]
+     */
+    const goToCell = (row1Based, col1Based = 1) => {
+        const rowCount = typeof hot.countRows === "function" ? hot.countRows() : 0;
+        const colCount = typeof hot.countCols === "function" ? hot.countCols() : 8;
+        const row = Math.max(0, Math.min(rowCount - 1, Math.floor(row1Based) - 1));
+        const col = Math.max(0, Math.min(colCount - 1, Math.floor(col1Based) - 1));
+        if (rowCount <= 0) {
+            return;
+        }
+        hot.selectCell(row, col);
+        if (typeof hot.scrollViewportTo === "function") {
+            hot.scrollViewportTo(row, col);
+        }
+        try {
+            hot.listen();
+        } catch {
+            // ignore：部分版本无 listen
+        }
+    };
+
+    /**
+     * 将「第N行 / 第N行：第M列」错误渲染为可点击链接，便于快速定位。
+     * @param {string[]} errors
+     */
+    const setValidationErrors = (errors) => {
+        if (!infoBarEl) {
+            return;
+        }
+        infoBarEl.replaceChildren();
+        infoBarEl.classList.remove("alert-info", "alert-success", "alert-danger");
+        infoBarEl.classList.add("alert-danger");
+
+        infoBarEl.appendChild(document.createTextNode("数据检查未通过："));
+        const shown = errors.slice(0, 8);
+        shown.forEach((err, index) => {
+            if (index > 0) {
+                infoBarEl.appendChild(document.createTextNode("；"));
+            }
+            const match = String(err).match(/^第\s*(\d+)\s*行(?:：第(\d+)列)?/);
+            if (match) {
+                const btn = document.createElement("button");
+                btn.type = "button";
+                btn.className = "oa-goto-cell";
+                btn.textContent = err;
+                const rowNo = Number(match[1]);
+                const colNo = match[2] ? Number(match[2]) : 1;
+                btn.title = `点击跳转到第 ${rowNo} 行${match[2] ? `第 ${colNo} 列` : ""}（也可按 Ctrl+G 输入行号）`;
+                btn.addEventListener("click", () => goToCell(rowNo, colNo));
+                infoBarEl.appendChild(btn);
+            } else {
+                infoBarEl.appendChild(document.createTextNode(err));
+            }
+        });
+        if (errors.length > 8) {
+            infoBarEl.appendChild(
+                document.createTextNode(`（另有 ${errors.length - 8} 条；按 Ctrl+G 可输入行号跳转）`)
+            );
+        } else {
+            infoBarEl.appendChild(document.createTextNode("（点击错误可跳转；Ctrl+G 输入行号）"));
+        }
+    };
+
+    /** Ctrl+G / Cmd+G：输入行号或「行,列」跳转 */
+    const promptGoToRow = () => {
+        const raw = window.prompt("跳转到单元格（行号，或 行,列 如 2482,4）：", "");
+        if (raw == null) {
+            return;
+        }
+        const text = String(raw).trim();
+        if (!text) {
+            return;
+        }
+        const parts = text.split(/[,，\s]+/).filter(Boolean);
+        const rowNo = Number(parts[0]);
+        const colNo = parts.length > 1 ? Number(parts[1]) : 1;
+        if (!Number.isFinite(rowNo) || rowNo < 1) {
+            setInfo("行号无效，请输入正整数（例如 2482 或 2482,4）。", "error");
+            return;
+        }
+        goToCell(rowNo, Number.isFinite(colNo) && colNo >= 1 ? colNo : 1);
+        setInfo(`已跳转到第 ${Math.floor(rowNo)} 行第 ${Math.floor(Number.isFinite(colNo) && colNo >= 1 ? colNo : 1)} 列。`, "success");
     };
 
     const clearInvalidMarks = () => {
@@ -462,6 +575,46 @@
         return result.errors;
     };
 
+    /**
+     * 重填「序号」列：对有业务数据的行（第2–8列任一带值）按出现顺序写 1、2、3…
+     * 纯空行或仅有旧序号的行清空序号，保证插入行后仍连续。
+     * @returns {number} 重写后的非空数据行数
+     */
+    const renumberSerialColumn = () => {
+        const data = hot.getData();
+        const changes = [];
+        let nextSerial = 1;
+
+        for (let rowIndex = 0; rowIndex < data.length; rowIndex += 1) {
+            const row = Array.isArray(data[rowIndex]) ? data[rowIndex] : [];
+            let hasBusinessData = false;
+            for (let col = 1; col < 8; col += 1) {
+                const cell = (row[col] ?? "").toString().trim();
+                if (cell) {
+                    hasBusinessData = true;
+                    break;
+                }
+            }
+
+            const newValue = hasBusinessData ? String(nextSerial) : "";
+            if (hasBusinessData) {
+                nextSerial += 1;
+            }
+
+            const current = (row[0] ?? "").toString().trim();
+            if (current !== newValue) {
+                changes.push([rowIndex, 0, newValue]);
+            }
+        }
+
+        if (changes.length > 0) {
+            // 自定义 source，避免 afterChange 把本次「数据检查」状态机清掉
+            hot.setDataAtCell(changes, "renumberSerial");
+        }
+
+        return nextSerial - 1;
+    };
+
     const focusUnitBlockInGrid = (unitName) => {
         const target = (unitName || "").trim();
         if (!target) {
@@ -569,7 +722,7 @@
     // 任意编辑/插入/删除一旦发生，都立刻使下游阶段失效，
     // 强制用户重新执行「数据检查」与「目录预览」，避免基于旧数据的目录树被保存。
     hot.addHook("afterChange", (changes, source) => {
-        if (!changes || source === "loadData") {
+        if (!changes || source === "loadData" || source === "renumberSerial") {
             return;
         }
         if (state.hasLoadedExcelData) {
@@ -633,13 +786,14 @@
     });
 
     checkDataBtn.addEventListener("click", () => {
+        const serialCount = renumberSerialColumn();
         const errors = runValidation();
         if (errors.length === 0) {
             hot.render();
             state.hasCheckPassed = state.hasLoadedExcelData;
             state.hasPreviewSucceeded = false;
             applyButtonStates();
-            setInfo("数据检查通过。", "success");
+            setInfo(`数据检查通过。已重排序号 1–${serialCount}。`, "success");
             return;
         }
 
@@ -647,9 +801,19 @@
         state.hasCheckPassed = false;
         state.hasPreviewSucceeded = false;
         applyButtonStates();
-        const preview = errors.slice(0, 8).join("；");
-        const suffix = errors.length > 8 ? `（另有 ${errors.length - 8} 条）` : "";
-        setInfo(`数据检查未通过：${preview}${suffix}`, "error");
+        setValidationErrors(errors);
+    });
+
+    document.addEventListener("keydown", (event) => {
+        if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "g") {
+            return;
+        }
+        const tag = (event.target && event.target.tagName) || "";
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
+            return;
+        }
+        event.preventDefault();
+        promptGoToRow();
     });
 
     previewTreeBtn.addEventListener("click", () => {

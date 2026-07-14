@@ -1,29 +1,80 @@
 using System.Globalization;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace PanelFlow.Web.Helpers;
 
 /// <summary>
-/// BJB 导入字段长度限制，与 databaseStructure.csv 中 BJB 表定义一致。
-/// 校验口径对齐 SQL Server <c>LEN(LTRIM(RTRIM(col)))</c>（按字符数，非字节数）。
+/// BJB 导入字段长度限制，与 <c>ApplicationDbContext</c> 中 BJB 表 <c>char(n)</c> 定义一致。
+/// <para>
+/// SQL Server 非 Unicode 类型 <c>char(n)</c>/<c>varchar(n)</c> 的 <c>n</c> 通常按<strong>字节</strong>计
+/// （中文排序规则如 Chinese_PRC_CI_AS 下，一个汉字约占 2 字节）。
+/// 校验与截断口径使用代码页 936（GBK），对齐常见中文 SQL Server 环境。
+/// </para>
 /// </summary>
 internal static class BjbImportFieldLimits
 {
+    /// <summary>x_mc char(50)</summary>
     public const int XMc = 50;
+
+    /// <summary>x_ggxh char(50)</summary>
     public const int XGgxh = 50;
+
+    /// <summary>x_sccj char(50)</summary>
     public const int XSccj = 50;
+
+    /// <summary>x_wzdh char(100)</summary>
     public const int XWzdh = 100;
 
-    /// <summary>
-    /// 与 SQL Server LEN(LTRIM(RTRIM(@s))) 一致：Trim 后按 UTF-16 码元计数。
-    /// char/nvarchar 长度限制均按字符数计；中文、英文均各计 1 字符。
-    /// </summary>
-    public static int SqlLen(string? value) => (value ?? string.Empty).Trim().Length;
+    private static readonly Encoding DbAnsiEncoding = CreateDbAnsiEncoding();
 
-    public static string Limit(string? value, int maxLen)
+    private static Encoding CreateDbAnsiEncoding()
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        // 936 = GBK，与多数中文 SQL Server char/varchar 存储一致
+        return Encoding.GetEncoding(936);
+    }
+
+    /// <summary>
+    /// 对齐 SQL Server 写入 <c>char</c>/<c>varchar</c> 时的长度：Trim 后按 GBK 字节数计。
+    /// 对应大致检查：<c>DATALENGTH(CAST(LTRIM(RTRIM(@s)) AS VARCHAR(...)))</c>（中文非 UTF-8 排序规则）。
+    /// </summary>
+    public static int SqlLen(string? value) =>
+        DbAnsiEncoding.GetByteCount((value ?? string.Empty).Trim());
+
+    /// <summary>
+    /// 按 GBK 字节上限截断，避免从多字节汉字中间切开。
+    /// </summary>
+    public static string Limit(string? value, int maxBytes)
     {
         var text = (value ?? string.Empty).Trim();
-        return text.Length <= maxLen ? text : text[..maxLen];
+        if (maxBytes <= 0)
+        {
+            return string.Empty;
+        }
+
+        if (DbAnsiEncoding.GetByteCount(text) <= maxBytes)
+        {
+            return text;
+        }
+
+        var buffer = new char[1];
+        var usedBytes = 0;
+        var end = 0;
+        for (var i = 0; i < text.Length; i++)
+        {
+            buffer[0] = text[i];
+            var charBytes = DbAnsiEncoding.GetByteCount(buffer);
+            if (usedBytes + charBytes > maxBytes)
+            {
+                break;
+            }
+
+            usedBytes += charBytes;
+            end = i + 1;
+        }
+
+        return text[..end];
     }
 
     /// <summary>
@@ -51,7 +102,7 @@ internal static class BjbImportFieldLimits
                 var unitNodeName = treeNodeNames[treeIndex];
                 treeIndex += 1;
                 AppendLengthError(errors, unitNodeName, XMc,
-                    $"目录树第 {treeIndex} 个控制柜名称超过 {XMc} 字（当前 {SqlLen(unitNodeName)} 字），请缩短后重试");
+                    $"目录树第 {treeIndex} 个控制柜名称超过 {XMc} 字节（当前 {SqlLen(unitNodeName)} 字节，中文约每字 2 字节），请缩短后重试");
             }
 
             foreach (var component in sourceUnit.Components)
@@ -64,7 +115,7 @@ internal static class BjbImportFieldLimits
                 var wzdh = normalizeSpec(component.Spec);
                 if (SqlLen(wzdh) > XWzdh)
                 {
-                    errors.Add($"第 {rowNo} 行：规格标准化指纹超过 {XWzdh} 字（当前 {SqlLen(wzdh)} 字），请缩短规格后重试");
+                    errors.Add($"第 {rowNo} 行：规格标准化指纹超过 {XWzdh} 字节（当前 {SqlLen(wzdh)} 字节），请缩短规格后重试");
                 }
             }
         }
@@ -83,7 +134,7 @@ internal static class BjbImportFieldLimits
                 if (SqlLen(name) > XMc)
                 {
                     errors.Add(
-                        $"第 {unit.SourceRowNo} 行：单元号拆分后的控制柜名称超过 {XMc} 字（第 {i + 1} 个：「{name}」，当前 {SqlLen(name)} 字），请缩短单元号或降低拆分数量");
+                        $"第 {unit.SourceRowNo} 行：单元号拆分后的控制柜名称超过 {XMc} 字节（第 {i + 1} 个：「{name}」，当前 {SqlLen(name)} 字节），请缩短单元号或降低拆分数量");
                 }
             }
         }
@@ -96,19 +147,19 @@ internal static class BjbImportFieldLimits
         int rowNo,
         int columnNo,
         string? value,
-        int maxLen,
+        int maxBytes,
         string columnLabel)
     {
         var len = SqlLen(value);
-        if (len > maxLen)
+        if (len > maxBytes)
         {
-            errors.Add($"第 {rowNo} 行：第{columnNo}列{columnLabel}超过 {maxLen} 字（当前 {len} 字），请缩短后重试");
+            errors.Add($"第 {rowNo} 行：第{columnNo}列{columnLabel}超过 {maxBytes} 字节（当前 {len} 字节，中文约每字 2 字节），请缩短后重试");
         }
     }
 
-    private static void AppendLengthError(List<string> errors, string? value, int maxLen, string message)
+    private static void AppendLengthError(List<string> errors, string? value, int maxBytes, string message)
     {
-        if (SqlLen(value) > maxLen)
+        if (SqlLen(value) > maxBytes)
         {
             errors.Add(message);
         }

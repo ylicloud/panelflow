@@ -37,6 +37,46 @@
     const summaryEditableCols = new Set([3, 4, 6, 7]);
     const invalidCellSet = new Set();
     const invalidRowSet = new Set();
+
+    /** 与 BJB char(n) / BjbImportFieldLimits 一致（按 GBK 字节） */
+    const BJB_FIELD_LIMITS = { xMc: 50, xGgxh: 50, xSccj: 50 };
+
+    /** 对齐 SQL Server 中文 char/varchar：按 GBK(936) 字节计长 */
+    function sqlByteLen(text) {
+        const s = (text ?? "").trim();
+        let bytes = 0;
+        for (let i = 0; i < s.length; i += 1) {
+            const code = s.charCodeAt(i);
+            if (code >= 0xDC00 && code <= 0xDFFF) {
+                continue;
+            }
+            if (code <= 0x7F) {
+                bytes += 1;
+            } else if (code >= 0xD800 && code <= 0xDBFF) {
+                bytes += 2;
+                if (i + 1 < s.length) {
+                    const low = s.charCodeAt(i + 1);
+                    if (low >= 0xDC00 && low <= 0xDFFF) {
+                        i += 1;
+                    }
+                }
+            } else {
+                bytes += 2;
+            }
+        }
+        return bytes;
+    }
+
+    function appendByteLengthError(errors, rowIndex, colIndex, value, maxLen, columnLabel) {
+        const len = sqlByteLen(value);
+        if (len > maxLen) {
+            errors.push(
+                `第 ${rowIndex + 1} 行：第${colIndex + 1}列“${columnLabel}”超过 ${maxLen} 字节（当前 ${len} 字节，中文约每字 2 字节），请缩短后重试`
+            );
+            markInvalidCell(rowIndex, colIndex);
+        }
+    }
+
     let hasLoadedExcelData = false;
     let canPreviewTree = false;
     let canSavePlan = false;
@@ -687,6 +727,26 @@
                 } else {
                     unitNoMap.set(unitNo, rowNo);
                 }
+
+                const quantityText = (row[5] || "").trim();
+                const quantityNumber = Number(quantityText);
+                const quantity = Number.isFinite(quantityNumber) && quantityNumber > 0
+                    ? Math.floor(quantityNumber)
+                    : 1;
+                const splitNames = buildSplitNames(unitNo, quantity);
+                splitNames.forEach((splitName, idx) => {
+                    const splitLen = sqlByteLen(splitName);
+                    if (splitLen > BJB_FIELD_LIMITS.xMc) {
+                        errors.push(
+                            `第 ${rowNo} 行：单元号拆分后的控制柜名称超过 ${BJB_FIELD_LIMITS.xMc} 字节（第 ${idx + 1} 个：「${splitName}」，当前 ${splitLen} 字节），请缩短单元号或降低拆分数量`
+                        );
+                        markInvalidCell(i, 1);
+                    }
+                });
+            } else {
+                appendByteLengthError(errors, i, 2, name, BJB_FIELD_LIMITS.xMc, "名称");
+                appendByteLengthError(errors, i, 3, spec, BJB_FIELD_LIMITS.xGgxh, "规格");
+                appendByteLengthError(errors, i, 6, row[6] || "", BJB_FIELD_LIMITS.xSccj, "生产厂家");
             }
         }
 

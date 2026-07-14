@@ -1,3 +1,4 @@
+using System.Text;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
@@ -6,6 +7,9 @@ using PanelFlow.Core.Services;
 using PanelFlow.Infrastructure.Data;
 using PanelFlow.Infrastructure.Security;
 using PanelFlow.Infrastructure.Services;
+
+// Ubuntu/Windows 上启用 GBK(936)，供 BJB char/varchar 字节长度校验使用
+Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
 var builder = WebApplication.CreateBuilder(args);
 

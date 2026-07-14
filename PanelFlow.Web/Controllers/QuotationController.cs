@@ -2157,7 +2157,7 @@ WHERE fabh = {fabh}
         return new BjbWriteRow
         {
             Xbm = $"{unitCode}{suffix}",
-            Xmc = name,
+            Xmc = BjbImportFieldLimits.Limit(name, BjbImportFieldLimits.XMc),
             Xggxh = string.Empty,
             Xsccj = string.Empty,
             Xdj = 0m,

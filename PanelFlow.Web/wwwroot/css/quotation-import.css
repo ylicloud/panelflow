@@ -139,6 +139,27 @@
     margin-bottom: 0.75rem;
 }
 
+/* 数据检查错误：点击跳转到对应单元格 */
+#page-info-bar .oa-goto-cell {
+    display: inline;
+    padding: 0;
+    margin: 0;
+    border: 0;
+    background: transparent;
+    color: #842029;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
+    white-space: normal;
+}
+
+#page-info-bar .oa-goto-cell:hover,
+#page-info-bar .oa-goto-cell:focus {
+    color: #5c151c;
+}
+
 /* ---------- 移动端断点 ---------- */
 @media (max-width: 768px) {
     .oa-import-workspace {

@@ -8,6 +8,8 @@
     <PackageReference Include="NPOI" Version="2.8.0" />
     <PackageReference Include="SkiaSharp" Version="3.119.2" />
     <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="3.119.2" />
+    <!-- Ubuntu 等非 Windows 环境需要显式引用，才能使用 GBK(936) 做 BJB char 字节校验 -->
+    <PackageReference Include="System.Text.Encoding.CodePages" Version="9.0.0" />
     <ProjectReference Include="..\PanelFlow.Core\PanelFlow.Core.csproj" />
     <ProjectReference Include="..\PanelFlow.Infrastructure\PanelFlow.Infrastructure.csproj" />
   </ItemGroup>
@@ -17,6 +19,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AcceptNPOIOSMFLicense>true</AcceptNPOIOSMFLicense>
+    <!-- NU1510：CodePages 已在共享框架中，引用仅为 Ubuntu 显式依赖，不阻止还原/运行 -->
+    <NoWarn>$(NoWarn);NU1510</NoWarn>
     <!-- 本地开发用 dotnet user-secrets 存放 ConnectionStrings:DefaultConnection，勿把真实密码提交到 Git -->
     <UserSecretsId>f4b8c9d0-a1e2-4b3c-9d8e-0123456789ab</UserSecretsId>
   </PropertyGroup>
