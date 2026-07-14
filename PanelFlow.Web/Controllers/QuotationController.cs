@@ -1702,13 +1702,79 @@ WHERE fabh = {quotationNo}
             row.Xdj = row.XbjDj * (1 + fdds / 100m);
         }
 
+        // 校验通过后改为 NDJSON 流式回报进度：(已保存单元数 / 总单元数)
+        var unitCount = rowsToInsert.Count(x => x.Xlx == 1 && x.Xbm.Length == 4);
+        var componentCount = rowsToInsert.Count(x => x.Xlx == 11);
+        // 按单元编码（x_bm 前 4 位）分组写入，便于按单元推进进度；短编码单独兜底插入。
+        var unitGroups = rowsToInsert
+            .Where(r => !string.IsNullOrWhiteSpace(r.Xbm) && r.Xbm.Length >= 4)
+            .GroupBy(r => r.Xbm[..4], StringComparer.Ordinal)
+            .OrderBy(g => g.Key, StringComparer.Ordinal)
+            .ToList();
+        var shortCodeRows = rowsToInsert
+            .Where(r => string.IsNullOrWhiteSpace(r.Xbm) || r.Xbm.Length < 4)
+            .ToList();
+        // 进度分母与分组数对齐，保证界面从上到下能看到 xxx 逼近 yyy
+        var progressTotal = unitGroups.Count;
+
+        HttpContext.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpResponseBodyFeature>()
+            ?.DisableBuffering();
+        Response.StatusCode = StatusCodes.Status200OK;
+        Response.ContentType = "application/x-ndjson; charset=utf-8";
+        Response.Headers.CacheControl = "no-cache";
+
+        var jsonOptions = new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        };
+
+        await using var writer = new StreamWriter(Response.Body, new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        async Task EmitAsync(object payload)
+        {
+            await writer.WriteLineAsync(JsonSerializer.Serialize(payload, jsonOptions));
+            await writer.FlushAsync();
+        }
+
+        await EmitAsync(new
+        {
+            type = "progress",
+            current = 0,
+            total = progressTotal,
+            message = $"正在保存方案…（0/{progressTotal}）"
+        });
+
         await using var tx = await _db.Database.BeginTransactionAsync();
         try
         {
             await _db.Database.ExecuteSqlInterpolatedAsync(
                 $@"DELETE FROM BJB WHERE fabh = {fabh} AND x_bm NOT IN ('0', '9999')");
 
-            foreach (var row in rowsToInsert)
+            var current = 0;
+            foreach (var group in unitGroups)
+            {
+                foreach (var row in group)
+                {
+                    await _db.Database.ExecuteSqlInterpolatedAsync($@"
+INSERT INTO BJB
+(fabh, x_bm, x_mc, x_dw, x_dj, x_fdds, x_sl, x_bj_fdds, x_bj_dj, x_bjb_bj, x_bjb_dj,
+ x_bjb_datetime, x_bjb_fdds, x_wzfy, x_flbh, x_ggxh, x_sccj, x_key_ry, x_jsgsbh, x_bz, x_wzdh, x_lx, x_cgf)
+VALUES
+({fabh}, {row.Xbm}, {row.Xmc}, {string.Empty}, {row.Xdj}, {row.Xfdds}, {row.Xsl}, {0m}, {row.XbjDj}, {row.XbjbBj}, {row.XbjbDj},
+ NULL, {0m}, {0m}, {string.Empty}, {row.Xggxh}, {row.Xsccj}, {string.Empty}, {0m}, {string.Empty}, {row.Xwzdh}, {row.Xlx}, {1})");
+                }
+
+                current += 1;
+                await EmitAsync(new
+                {
+                    type = "progress",
+                    current,
+                    total = progressTotal,
+                    unitCode = group.Key,
+                    message = $"正在保存方案…（{current}/{progressTotal}）"
+                });
+            }
+
+            foreach (var row in shortCodeRows)
             {
                 await _db.Database.ExecuteSqlInterpolatedAsync($@"
 INSERT INTO BJB
@@ -1719,32 +1785,46 @@ VALUES
  NULL, {0m}, {0m}, {string.Empty}, {row.Xggxh}, {row.Xsccj}, {string.Empty}, {0m}, {string.Empty}, {row.Xwzdh}, {row.Xlx}, {1})");
             }
 
-            var cabinetCount = rowsToInsert.Count(x => x.Xlx == 1 && x.Xbm.Length == 4);
-            if (cabinetCount > 0 && quotation.dqzt == 1)
+            if (unitCount > 0 && quotation.dqzt == 1)
             {
                 await _db.Database.ExecuteSqlInterpolatedAsync(
                     $@"UPDATE BJFAT SET dqzt = {0} WHERE fabh = {fabh} AND dqzt = {1}");
             }
-            else if (cabinetCount == 0 && quotation.dqzt == 0)
+            else if (unitCount == 0 && quotation.dqzt == 0)
             {
                 await _db.Database.ExecuteSqlInterpolatedAsync(
                     $@"UPDATE BJFAT SET dqzt = {1} WHERE fabh = {fabh} AND dqzt = {0}");
             }
 
             await tx.CommitAsync();
-            return Ok(new { success = true, message = $"保存成功，共写入 {rowsToInsert.Count} 条记录。" });
+            await EmitAsync(new
+            {
+                type = "done",
+                success = true,
+                unitCount,
+                componentCount,
+                totalRows = rowsToInsert.Count,
+                message = $"保存成功：共 {unitCount} 个单元，{componentCount} 个元件。"
+            });
         }
         catch (InvalidOperationException ex)
         {
             await tx.RollbackAsync();
-            return BadRequest(new { success = false, message = ex.Message });
+            await EmitAsync(new { type = "error", success = false, message = ex.Message });
         }
         catch (Exception ex)
         {
             await tx.RollbackAsync();
             _logger.LogError(ex, "保存方案失败。fabh={Fabh}, user={User}", fabh, loginUserName);
-            return StatusCode(500, new { success = false, message = $"保存方案失败：{ex.Message}" });
+            await EmitAsync(new
+            {
+                type = "error",
+                success = false,
+                message = $"保存方案失败：{ex.Message}"
+            });
         }
+
+        return new EmptyResult();
     }
 
     /// <summary>

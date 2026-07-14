@@ -37,6 +37,15 @@
     提示：可通过“打开 Excel 元件表”导入数据；支持前 8 列，最大 5000 行，遇到连续 5 空行自动结束。
 </div>
 
+<div id="oa-save-busy" class="oa-save-busy d-none" aria-hidden="true" role="status" aria-live="assertive">
+    <div class="oa-save-busy-card">
+        <div class="spinner-border text-primary mb-2" role="presentation"></div>
+        <div class="fw-semibold" id="oa-save-busy-title">正在保存方案…</div>
+        <div class="oa-save-progress" id="oa-save-busy-progress">(0/0)</div>
+        <div class="small text-muted mt-1">单元较多时请稍候，请勿关闭页面</div>
+    </div>
+</div>
+
 <div class="oa-import-workspace">
     <aside id="tree-pane" aria-label="目录树">
         <div class="small text-muted mb-2">目录树</div>

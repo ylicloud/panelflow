@@ -322,6 +322,11 @@
     const savePlanBtn = document.getElementById("save-plan-btn");
     const excelInput = document.getElementById("excel-file-input");
     const uploadForm = document.getElementById("excel-upload-form");
+    const saveBusyEl = document.getElementById("oa-save-busy");
+    const saveBusyProgressEl = document.getElementById("oa-save-busy-progress");
+    const saveBusyTitleEl = document.getElementById("oa-save-busy-title");
+    const savePlanBtnDefaultHtml = savePlanBtn ? savePlanBtn.innerHTML : "";
+    let isSavingPlan = false;
 
     if (!openExcelBtn || !excelInput || !uploadForm || !uploadUrl) {
         return;
@@ -501,12 +506,135 @@
      */
     const applyButtonStates = () => {
         if (openExcelBtn) {
-            openExcelBtn.disabled = false;
+            openExcelBtn.disabled = isSavingPlan ? true : false;
         }
-        checkDataBtn.disabled = !state.hasLoadedExcelData;
-        previewTreeBtn.disabled = !(state.hasLoadedExcelData && state.hasCheckPassed);
-        saveExcelBtn.disabled = !state.hasLoadedExcelData;
-        savePlanBtn.disabled = !(state.hasLoadedExcelData && state.hasCheckPassed && state.hasPreviewSucceeded);
+        checkDataBtn.disabled = isSavingPlan || !state.hasLoadedExcelData;
+        previewTreeBtn.disabled = isSavingPlan || !(state.hasLoadedExcelData && state.hasCheckPassed);
+        saveExcelBtn.disabled = isSavingPlan || !state.hasLoadedExcelData;
+        savePlanBtn.disabled = isSavingPlan || !(state.hasLoadedExcelData && state.hasCheckPassed && state.hasPreviewSucceeded);
+    };
+
+    const setSavingUi = (busy) => {
+        isSavingPlan = !!busy;
+        document.body.classList.toggle("oa-saving", isSavingPlan);
+        if (infoBarEl) {
+            infoBarEl.classList.toggle("oa-info-busy", isSavingPlan);
+        }
+        if (saveBusyEl) {
+            saveBusyEl.classList.toggle("d-none", !isSavingPlan);
+            saveBusyEl.setAttribute("aria-hidden", isSavingPlan ? "false" : "true");
+        }
+        if (!isSavingPlan && saveBusyProgressEl) {
+            saveBusyProgressEl.textContent = "(0/0)";
+        }
+        if (!isSavingPlan && saveBusyTitleEl) {
+            saveBusyTitleEl.textContent = "正在保存方案…";
+        }
+        if (savePlanBtn) {
+            if (isSavingPlan) {
+                savePlanBtn.innerHTML =
+                    '<span class="spinner-border spinner-border-sm me-1" role="presentation"></span>正在保存…';
+            } else {
+                savePlanBtn.innerHTML = savePlanBtnDefaultHtml;
+            }
+        }
+        applyButtonStates();
+    };
+
+    const updateSaveProgress = (current, total, message) => {
+        const cur = Number.isFinite(Number(current)) ? Number(current) : 0;
+        const tot = Number.isFinite(Number(total)) ? Number(total) : 0;
+        const label = `(${cur}/${tot})`;
+        if (saveBusyProgressEl) {
+            saveBusyProgressEl.textContent = label;
+        }
+        if (saveBusyTitleEl) {
+            saveBusyTitleEl.textContent = tot > 0
+                ? `正在保存方案… ${label}`
+                : "正在保存方案…";
+        }
+        if (savePlanBtn && isSavingPlan) {
+            savePlanBtn.innerHTML =
+                `<span class="spinner-border spinner-border-sm me-1" role="presentation"></span>保存 ${label}`;
+        }
+        setInfo(message || `正在保存方案…${label}`, "info");
+    };
+
+    /**
+     * 读取 SavePlan 的 NDJSON 进度流；校验失败时仍可能返回普通 JSON。
+     * @param {Response} response
+     * @returns {Promise<{success?: boolean, unitCount?: number, componentCount?: number, message?: string}>}
+     */
+    const consumeSavePlanResponse = async (response) => {
+        const contentType = (response.headers.get("content-type") || "").toLowerCase();
+        if (!contentType.includes("ndjson")) {
+            const result = await response.json();
+            if (!response.ok || !result.success) {
+                throw new Error(result.message || "保存方案失败");
+            }
+            return result;
+        }
+
+        if (!response.body) {
+            throw new Error("保存方案失败：浏览器不支持进度流");
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let doneEvent = null;
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+                break;
+            }
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+            for (const rawLine of lines) {
+                const line = rawLine.trim();
+                if (!line) {
+                    continue;
+                }
+                let evt;
+                try {
+                    evt = JSON.parse(line);
+                } catch {
+                    continue;
+                }
+                if (evt.type === "progress") {
+                    updateSaveProgress(evt.current, evt.total, evt.message);
+                } else if (evt.type === "done") {
+                    doneEvent = evt;
+                } else if (evt.type === "error") {
+                    throw new Error(evt.message || "保存方案失败");
+                }
+            }
+        }
+
+        const tail = buffer.trim();
+        if (tail) {
+            try {
+                const evt = JSON.parse(tail);
+                if (evt.type === "progress") {
+                    updateSaveProgress(evt.current, evt.total, evt.message);
+                } else if (evt.type === "done") {
+                    doneEvent = evt;
+                } else if (evt.type === "error") {
+                    throw new Error(evt.message || "保存方案失败");
+                }
+            } catch (error) {
+                if (error instanceof Error && error.message && !error.message.includes("JSON")) {
+                    throw error;
+                }
+            }
+        }
+
+        if (!doneEvent || !doneEvent.success) {
+            throw new Error((doneEvent && doneEvent.message) || "保存方案失败：未收到完成事件");
+        }
+        return doneEvent;
     };
 
     const getToken = () => {
@@ -823,6 +951,10 @@
     });
 
     savePlanBtn.addEventListener("click", async () => {
+        if (isSavingPlan) {
+            return;
+        }
+
         if (!isEmptyQuotation) {
             const firstConfirm = window.confirm("当前报价单有数据,导入时会清空原来数据,是否继续?");
             if (!firstConfirm) {
@@ -841,8 +973,9 @@
         }
 
         const antiForgeryToken = getToken();
+        setSavingUi(true);
+        updateSaveProgress(0, 0, "正在保存方案，请稍候…");
         try {
-            setInfo("正在保存方案...", "info");
             const response = await fetch(savePlanUrl, {
                 method: "POST",
                 headers: {
@@ -855,14 +988,30 @@
                     treeNodeNames: getTreeNodeNamesForSave()
                 })
             });
-            const result = await response.json();
-            if (!response.ok || !result.success) {
-                throw new Error(result.message || "保存方案失败");
+
+            // 校验失败仍返回普通 JSON；成功路径为 NDJSON 进度流
+            if (!response.ok) {
+                const contentType = (response.headers.get("content-type") || "").toLowerCase();
+                if (contentType.includes("json") && !contentType.includes("ndjson")) {
+                    const fail = await response.json();
+                    throw new Error(fail.message || "保存方案失败");
+                }
+                throw new Error(`保存方案失败（HTTP ${response.status}）`);
             }
-            setInfo(result.message || "保存方案成功。", "success");
+
+            const result = await consumeSavePlanResponse(response);
+            const unitCount = Number(result.unitCount);
+            const componentCount = Number(result.componentCount);
+            if (Number.isFinite(unitCount) && Number.isFinite(componentCount)) {
+                setInfo(`保存成功：共 ${unitCount} 个单元，${componentCount} 个元件。`, "success");
+            } else {
+                setInfo(result.message || "保存方案成功。", "success");
+            }
         } catch (error) {
             const message = error instanceof Error ? error.message : "保存方案失败";
             setInfo(message, "error");
+        } finally {
+            setSavingUi(false);
         }
     });
 
