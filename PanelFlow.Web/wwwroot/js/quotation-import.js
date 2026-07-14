@@ -1041,8 +1041,18 @@
 
             const blob = await response.blob();
             const disposition = response.headers.get("Content-Disposition") || "";
-            const match = disposition.match(/filename\*=UTF-8''([^;]+)|filename="?([^"]+)"?/i);
-            const fileName = decodeURIComponent((match && (match[1] || match[2])) || `报价元件表_${quotationNo}.xlsx`);
+            // 优先 filename*=UTF-8''xxx；勿用 [^"]+ 匹配无引号 filename=，否则会吞掉后续 ; filename*=…
+            let fileName = `报价元件表_${quotationNo}.xlsx`;
+            const utf8Match = disposition.match(/filename\*=UTF-8''([^;\s]+)/i);
+            if (utf8Match) {
+                fileName = decodeURIComponent(utf8Match[1]);
+            } else {
+                const plainMatch = disposition.match(/filename="([^"]+)"/i)
+                    || disposition.match(/filename=([^;\s]+)/i);
+                if (plainMatch) {
+                    fileName = plainMatch[1];
+                }
+            }
             const downloadUrl = window.URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = downloadUrl;
