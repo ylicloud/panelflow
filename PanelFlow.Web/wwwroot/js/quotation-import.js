@@ -1,7 +1,8 @@
 (() => {
     // ============================================================
     // 纯函数（无 DOM 副作用），按 design.md「模块边界与契约」表
-    //   validateRows(rows)        → { errors, invalidCells, invalidRows }
+    //   validateRows(rows)        → { errors, invalidCells, invalidRows, ruleResults }
+    //   countTableUnitsAndComponents(rows) → { unitCount, componentCount }
     //   buildSplitNames(baseName, n /* 1..99 */) → string[] 长度 = n
     //   buildPreviewNodes(rows)   → { unitNo, displayName }[]
     // 这些函数被放在 IIFE 顶部以便：
@@ -63,31 +64,86 @@
     }
 
     /**
-     * 验证元件表格行集，输出错误摘要与无效单元格/行集合。
-     *
-     * 输入约定（design.md「模块边界与契约」）：
-     *   - rows: string[][]，已 trim 后的二维字符串数组，每行 8 列；
-     *   - 空行定义：8 列全部 trim 后为空字符串；
-     *   - 仅对非空行执行五项验证（requirements 3.1–3.6）。
-     *
-     * 输出（纯函数，无 DOM 副作用）：
-     *   - errors: string[]，错误摘要（文案严格匹配需求文案，便于 PBT 关键字断言）
-     *   - invalidCells: Set<"r:c">，二维定位的无效单元格集合
-     *   - invalidRows: Set<number>，仅"连续 5 空行后非空行"使用的整行无效集合
+     * 统计当前表格单元（拆分后台数）与元件行数。
+     * @param {string[][]} rows
+     * @returns {{ unitCount: number, componentCount: number }}
+     */
+    function countTableUnitsAndComponents(rows) {
+        const safeRows = Array.isArray(rows) ? rows : [];
+        let unitCount = 0;
+        let componentCount = 0;
+        let inUnitBlock = false;
+
+        for (let i = 0; i < safeRows.length; i += 1) {
+            const row = Array.isArray(safeRows[i]) ? safeRows[i] : [];
+            const cells = [];
+            for (let c = 0; c < 8; c += 1) {
+                cells.push((row[c] ?? "").toString().trim());
+            }
+            const empty = cells.every((cell) => !cell);
+            if (empty) {
+                continue;
+            }
+
+            const unitNo = cells[1];
+            if (unitNo) {
+                inUnitBlock = true;
+                const quantityNumber = Number(cells[5]);
+                const quantity = Number.isFinite(quantityNumber) && quantityNumber > 0
+                    ? Math.floor(quantityNumber)
+                    : 1;
+                unitCount += buildSplitNames(unitNo, quantity).length;
+                continue;
+            }
+
+            if (!inUnitBlock) {
+                continue;
+            }
+
+            const hasComponentData = !!(cells[2] || cells[3] || cells[4] || cells[5] || cells[6]);
+            if (hasComponentData) {
+                componentCount += 1;
+            }
+        }
+
+        return { unitCount, componentCount };
+    }
+
+    /**
+     * 验证元件表格行集，输出错误摘要、无效单元格/行，以及按规则汇总。
      *
      * @param {string[][]} rows
-     * @returns {{ errors: string[], invalidCells: Set<string>, invalidRows: Set<number> }}
+     * @returns {{
+     *   errors: string[],
+     *   invalidCells: Set<string>,
+     *   invalidRows: Set<number>,
+     *   ruleResults: Record<string, { id: string, label: string, pass: boolean, errors: string[] }>
+     * }}
      */
     function validateRows(rows) {
         const errors = [];
         const invalidCells = new Set();
         const invalidRows = new Set();
-        // 记录首次出现的 1 基行号，便于重复检测错误消息引用首次出现位置。
         const firstSeenRowNo = new Map();
         const safeRows = Array.isArray(rows) ? rows : [];
 
-        // requirement 3.6 配套：连续空行计数；非空行处理后归零。
-        // 阈值采用 ">= 5"（前置已有 5 个连续空行 + 当前非空行），与 requirement 3.6 文案一致。
+        const ruleResults = {
+            quantity: { id: "quantity", label: "数量为正数", pass: true, errors: [] },
+            identity: { id: "identity", label: "行身份完整", pass: true, errors: [] },
+            unitDup: { id: "unitDup", label: "单元号不重复", pass: true, errors: [] },
+            gap: { id: "gap", label: "连续空行", pass: true, errors: [] },
+            byteLen: { id: "byteLen", label: "字段字节长度", pass: true, errors: [] }
+        };
+
+        const failRule = (ruleId, message) => {
+            errors.push(message);
+            const rule = ruleResults[ruleId];
+            if (rule) {
+                rule.pass = false;
+                rule.errors.push(message);
+            }
+        };
+
         const QUANTITY_MAX = 999_999_999.99;
         const isRowEmpty = (row) => row.every((cell) => !cell);
 
@@ -100,42 +156,38 @@
                 continue;
             }
 
-            // requirement 3.6：连续 5+ 空行后再次出现非空行 → 标记当前行
             if (consecutiveEmptyRows >= 5) {
-                errors.push(`第 ${rowNo} 行：连续空行超过 5 行后不能再有数据`);
+                failRule("gap", `第 ${rowNo} 行：连续空行超过 5 行后不能再有数据`);
                 invalidRows.add(i);
             }
             consecutiveEmptyRows = 0;
 
-            // requirement 3.2 / 3.3：第 6 列（数量）必须为有限正数，区间 (0, 999_999_999.99]
             const quantity = row[5] || "";
             if (!quantity) {
-                errors.push(`第 ${rowNo} 行：第6列数量不能为空`);
+                failRule("quantity", `第 ${rowNo} 行：第6列数量不能为空`);
                 invalidCells.add(`${i}:5`);
             } else {
                 const num = Number(quantity);
                 if (!Number.isFinite(num) || num <= 0 || num > QUANTITY_MAX) {
-                    errors.push(`第 ${rowNo} 行：第6列数量必须为正数`);
+                    failRule("quantity", `第 ${rowNo} 行：第6列数量必须为正数`);
                     invalidCells.add(`${i}:5`);
                 }
             }
 
-            // requirement 3.4：单元号 / 名称 / 规格不得同时为空
             const unitNo = row[1] || "";
             const name = row[2] || "";
             const spec = row[3] || "";
             if (!unitNo && !name && !spec) {
-                errors.push(`第 ${rowNo} 行：单元号、名称、规格不能同时为空`);
+                failRule("identity", `第 ${rowNo} 行：单元号、名称、规格不能同时为空`);
                 invalidCells.add(`${i}:1`);
                 invalidCells.add(`${i}:2`);
                 invalidCells.add(`${i}:3`);
             }
 
-            // requirement 3.5：UnitCode（非空）重复检测；空单元号不参与重复检测
             if (unitNo) {
                 const firstRowNo = firstSeenRowNo.get(unitNo);
                 if (firstRowNo) {
-                    errors.push(`第 ${rowNo} 行：第2列单元号"${unitNo}"与第 ${firstRowNo} 行重复`);
+                    failRule("unitDup", `第 ${rowNo} 行：第2列单元号"${unitNo}"与第 ${firstRowNo} 行重复`);
                     invalidCells.add(`${i}:1`);
                     invalidCells.add(`${firstRowNo - 1}:1`);
                 } else {
@@ -144,27 +196,33 @@
 
                 const quantityText = (row[5] || "").trim();
                 const quantityNumber = Number(quantityText);
-                const quantity = Number.isFinite(quantityNumber) && quantityNumber > 0
+                const qty = Number.isFinite(quantityNumber) && quantityNumber > 0
                     ? Math.floor(quantityNumber)
                     : 1;
-                const splitNames = buildSplitNames(unitNo, quantity);
+                const splitNames = buildSplitNames(unitNo, qty);
                 splitNames.forEach((splitName, idx) => {
                     const splitLen = sqlLen(splitName);
                     if (splitLen > BJB_FIELD_LIMITS.xMc) {
-                        errors.push(
+                        failRule(
+                            "byteLen",
                             `第 ${rowNo} 行：单元号拆分后的控制柜名称超过 ${BJB_FIELD_LIMITS.xMc} 字节（第 ${idx + 1} 个：「${splitName}」，当前 ${splitLen} 字节），请缩短单元号或降低拆分数量`
                         );
                         invalidCells.add(`${i}:1`);
                     }
                 });
             } else {
+                const beforeLen = errors.length;
                 appendLengthError(errors, invalidCells, i, 2, name, BJB_FIELD_LIMITS.xMc, "名称");
                 appendLengthError(errors, invalidCells, i, 3, spec, BJB_FIELD_LIMITS.xGgxh, "规格");
                 appendLengthError(errors, invalidCells, i, 6, row[6] || "", BJB_FIELD_LIMITS.xSccj, "生产厂家");
+                for (let e = beforeLen; e < errors.length; e += 1) {
+                    ruleResults.byteLen.pass = false;
+                    ruleResults.byteLen.errors.push(errors[e]);
+                }
             }
         }
 
-        return { errors, invalidCells, invalidRows };
+        return { errors, invalidCells, invalidRows, ruleResults };
     }
 
     /**
@@ -275,7 +333,14 @@
     // Node 兼容导出（仅当存在 CommonJS 环境时生效；浏览器中 typeof module === "undefined"）。
     // 测试侧（Vitest + jsdom）通过 require("../quotation-import.js") 拿到三个纯函数。
     if (typeof module !== "undefined" && module.exports) {
-        module.exports = { validateRows, buildSplitNames, buildPreviewNodes, BJB_FIELD_LIMITS, sqlLen };
+        module.exports = {
+            validateRows,
+            buildSplitNames,
+            buildPreviewNodes,
+            countTableUnitsAndComponents,
+            BJB_FIELD_LIMITS,
+            sqlLen
+        };
     }
 
     // ============================================================
@@ -322,6 +387,7 @@
     const treeChildrenContainer = document.getElementById("tree-children-container");
     const openExcelBtn = document.getElementById("open-excel-btn");
     const checkDataBtn = document.getElementById("check-data-btn");
+    const checkDataHelpBtn = document.getElementById("check-data-help-btn");
     const previewTreeBtn = document.getElementById("preview-tree-btn");
     const saveExcelBtn = document.getElementById("save-excel-btn");
     const exportPlanExcelBtn = document.getElementById("export-plan-excel-btn");
@@ -422,45 +488,129 @@
     };
 
     /**
-     * 将「第N行 / 第N行：第M列」错误渲染为可点击链接，便于快速定位。
-     * @param {string[]} errors
+     * 将「第N行 / 第N行：第M列」错误渲染为可点击链接。
+     * @param {string} err
+     * @returns {HTMLElement}
      */
-    const setValidationErrors = (errors) => {
+    const createErrorLink = (err) => {
+        const match = String(err).match(/^第\s*(\d+)\s*行(?:：第(\d+)列)?/);
+        if (match) {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "oa-goto-cell";
+            btn.textContent = err;
+            const rowNo = Number(match[1]);
+            const colNo = match[2] ? Number(match[2]) : 1;
+            btn.title = `点击跳转到第 ${rowNo} 行${match[2] ? `第 ${colNo} 列` : ""}`;
+            btn.addEventListener("click", () => goToCell(rowNo, colNo));
+            return btn;
+        }
+        const span = document.createElement("span");
+        span.textContent = err;
+        return span;
+    };
+
+    /**
+     * 渲染数据检查报告：统计 + 规则清单 + 可点击错误。
+     * @param {{
+     *   passed: boolean,
+     *   serialCount: number,
+     *   unitCount: number,
+     *   componentCount: number,
+     *   ruleResults: Record<string, { id: string, label: string, pass: boolean, errors: string[] }>,
+     *   errors: string[]
+     * }} report
+     */
+    const renderCheckReport = (report) => {
         if (!infoBarEl) {
             return;
         }
         infoBarEl.replaceChildren();
         infoBarEl.classList.remove("alert-info", "alert-success", "alert-danger");
-        infoBarEl.classList.add("alert-danger");
+        infoBarEl.classList.add(report.passed ? "alert-success" : "alert-danger");
 
-        infoBarEl.appendChild(document.createTextNode("数据检查未通过："));
-        const shown = errors.slice(0, 8);
-        shown.forEach((err, index) => {
-            if (index > 0) {
-                infoBarEl.appendChild(document.createTextNode("；"));
-            }
-            const match = String(err).match(/^第\s*(\d+)\s*行(?:：第(\d+)列)?/);
-            if (match) {
-                const btn = document.createElement("button");
-                btn.type = "button";
-                btn.className = "oa-goto-cell";
-                btn.textContent = err;
-                const rowNo = Number(match[1]);
-                const colNo = match[2] ? Number(match[2]) : 1;
-                btn.title = `点击跳转到第 ${rowNo} 行${match[2] ? `第 ${colNo} 列` : ""}（也可按 Ctrl+G 输入行号）`;
-                btn.addEventListener("click", () => goToCell(rowNo, colNo));
-                infoBarEl.appendChild(btn);
-            } else {
-                infoBarEl.appendChild(document.createTextNode(err));
-            }
-        });
-        if (errors.length > 8) {
-            infoBarEl.appendChild(
-                document.createTextNode(`（另有 ${errors.length - 8} 条；按 Ctrl+G 可输入行号跳转）`)
-            );
+        const title = document.createElement("div");
+        title.className = "oa-check-report-title";
+        if (report.passed) {
+            title.textContent =
+                `数据检查通过。当前表格：共 ${report.unitCount} 个单元（控制柜/箱/台），${report.componentCount} 个元件。已重排序号 1–${report.serialCount}。`;
         } else {
-            infoBarEl.appendChild(document.createTextNode("（点击错误可跳转；Ctrl+G 输入行号）"));
+            title.textContent =
+                `数据检查未通过：共 ${report.errors.length} 处问题。当前表格：共 ${report.unitCount} 个单元（控制柜/箱/台），${report.componentCount} 个元件。`;
         }
+        infoBarEl.appendChild(title);
+
+        const list = document.createElement("ul");
+        list.className = "oa-check-rule-list";
+
+        const serialLi = document.createElement("li");
+        serialLi.className = "oa-check-rule is-done";
+        serialLi.innerHTML = `<span class="oa-check-rule-label">重排序号</span><span class="oa-check-rule-status">已执行</span>`;
+        list.appendChild(serialLi);
+
+        const ruleOrder = ["quantity", "identity", "unitDup", "gap", "byteLen"];
+        ruleOrder.forEach((id) => {
+            const rule = report.ruleResults[id];
+            if (!rule) {
+                return;
+            }
+            const li = document.createElement("li");
+            li.className = rule.pass ? "oa-check-rule is-pass" : "oa-check-rule is-fail";
+            const label = document.createElement("span");
+            label.className = "oa-check-rule-label";
+            label.textContent = rule.label;
+            const status = document.createElement("span");
+            status.className = "oa-check-rule-status";
+            status.textContent = rule.pass
+                ? "通过"
+                : `未通过（${rule.errors.length}）`;
+            li.appendChild(label);
+            li.appendChild(status);
+
+            if (!rule.pass && rule.errors.length > 0) {
+                const detail = document.createElement("div");
+                detail.className = "oa-check-rule-errors";
+                const shown = rule.errors.slice(0, 3);
+                shown.forEach((err, index) => {
+                    if (index > 0) {
+                        detail.appendChild(document.createTextNode("；"));
+                    }
+                    detail.appendChild(createErrorLink(err));
+                });
+                if (rule.errors.length > 3) {
+                    detail.appendChild(
+                        document.createTextNode(`；还有 ${rule.errors.length - 3} 条…`)
+                    );
+                }
+                li.appendChild(detail);
+            }
+            list.appendChild(li);
+        });
+
+        infoBarEl.appendChild(list);
+
+        const hint = document.createElement("div");
+        hint.className = "oa-check-report-hint text-muted";
+        hint.textContent = "单元数含数量拆分，与目录预览节点数一致。可通过 Ctrl+G 跳转行号。";
+        infoBarEl.appendChild(hint);
+    };
+
+    /**
+     * @deprecated 由 renderCheckReport 替代；保留兼容短调用
+     * @param {string[]} errors
+     */
+    const setValidationErrors = (errors) => {
+        const rows = getRowsForValidation();
+        const stats = countTableUnitsAndComponents(rows);
+        const result = validateRows(rows);
+        renderCheckReport({
+            passed: false,
+            serialCount: 0,
+            unitCount: stats.unitCount,
+            componentCount: stats.componentCount,
+            ruleResults: result.ruleResults,
+            errors: errors || result.errors
+        });
     };
 
     /** Ctrl+G / Cmd+G：输入行号或「行,列」跳转 */
@@ -880,7 +1030,7 @@
         clearInvalidMarks();
         result.invalidCells.forEach((key) => state.invalidCells.add(key));
         result.invalidRows.forEach((row) => state.invalidRows.add(row));
-        return result.errors;
+        return result;
     };
 
     /**
@@ -1097,21 +1247,34 @@
 
     checkDataBtn.addEventListener("click", () => {
         const serialCount = renumberSerialColumn();
-        const errors = runValidation();
-        if (errors.length === 0) {
-            hot.render();
+        const result = runValidation();
+        const stats = countTableUnitsAndComponents(getRowsForValidation());
+        hot.render();
+        resetPreviewState();
+        if (result.errors.length === 0) {
             state.hasCheckPassed = state.hasLoadedExcelData;
-            resetPreviewState();
             applyButtonStates();
-            setInfo(`数据检查通过。已重排序号 1–${serialCount}。`, "success");
+            renderCheckReport({
+                passed: true,
+                serialCount,
+                unitCount: stats.unitCount,
+                componentCount: stats.componentCount,
+                ruleResults: result.ruleResults,
+                errors: []
+            });
             return;
         }
 
-        hot.render();
         state.hasCheckPassed = false;
-        resetPreviewState();
         applyButtonStates();
-        setValidationErrors(errors);
+        renderCheckReport({
+            passed: false,
+            serialCount,
+            unitCount: stats.unitCount,
+            componentCount: stats.componentCount,
+            ruleResults: result.ruleResults,
+            errors: result.errors
+        });
     });
 
     document.addEventListener("keydown", (event) => {
@@ -1330,4 +1493,12 @@
     }
 
     applyButtonStates();
+
+    if (checkDataHelpBtn && typeof bootstrap !== "undefined" && bootstrap.Popover) {
+        bootstrap.Popover.getOrCreateInstance(checkDataHelpBtn, {
+            trigger: "click",
+            container: "body",
+            html: true
+        });
+    }
 })();

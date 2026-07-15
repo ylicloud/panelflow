@@ -221,6 +221,56 @@ body.oa-saving {
     color: #5c151c;
 }
 
+.oa-check-report-title {
+    font-weight: 600;
+    margin-bottom: 0.35rem;
+}
+
+.oa-check-rule-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 0.35rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.oa-check-rule {
+    display: grid;
+    grid-template-columns: 8.5rem 1fr;
+    gap: 0.35rem 0.75rem;
+    align-items: baseline;
+}
+
+.oa-check-rule-label {
+    color: inherit;
+}
+
+.oa-check-rule-status {
+    font-weight: 600;
+}
+
+.oa-check-rule.is-pass .oa-check-rule-status,
+.oa-check-rule.is-done .oa-check-rule-status {
+    color: #198754;
+}
+
+.oa-check-rule.is-fail .oa-check-rule-status {
+    color: #dc3545;
+}
+
+.oa-check-rule-errors {
+    grid-column: 1 / -1;
+    font-weight: 400;
+    margin-left: 0;
+    padding-left: 0.25rem;
+}
+
+.oa-check-report-hint {
+    font-size: 0.8rem;
+    margin-top: 0.15rem;
+}
+
 /* ---------- 移动端断点 ---------- */
 @media (max-width: 768px) {
     .oa-import-workspace {

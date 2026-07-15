@@ -20,9 +20,21 @@
         <button id="open-excel-btn" type="button" class="btn btn-sm btn-outline-primary">
             <i class="bi bi-file-earmark-excel me-1"></i>打开 Excel 元件表
         </button>
-        <button id="check-data-btn" type="button" class="btn btn-sm btn-outline-warning" disabled>
-            <i class="bi bi-clipboard2-check me-1"></i>数据检查
-        </button>
+        <span class="btn-group" role="group" aria-label="数据检查">
+            <button id="check-data-btn" type="button" class="btn btn-sm btn-outline-warning" disabled>
+                <i class="bi bi-clipboard2-check me-1"></i>数据检查
+            </button>
+            <button id="check-data-help-btn" type="button" class="btn btn-sm btn-outline-warning"
+                    title="查看数据检查说明"
+                    data-bs-toggle="popover"
+                    data-bs-placement="bottom"
+                    data-bs-html="true"
+                    data-bs-title="数据检查说明"
+                    data-bs-content="<div class='small text-start'><p class='mb-1'>点击「数据检查」将执行：</p><ol class='mb-2 ps-3'><li>重排序号（第1列连续编号）</li><li>数量为正数（第6列）</li><li>行身份完整（单元号/名称/规格不能全空）</li><li>单元号不重复</li><li>连续空行不超过5行</li><li>字段 GBK 字节长度不超库限</li></ol><p class='mb-1'>通过后显示单元数（含数量拆分）与元件数。</p><p class='mb-0 text-muted'>通过后才能目录预览 / 保存方案。</p></div>">
+                <i class="bi bi-question-lg" aria-hidden="true"></i>
+                <span class="visually-hidden">检查说明</span>
+            </button>
+        </span>
         <button id="preview-tree-btn" type="button" class="btn btn-sm btn-outline-info" disabled>
             <i class="bi bi-diagram-3 me-1"></i>目录预览
         </button>
