@@ -1605,9 +1605,10 @@ WHERE fabh = {quotationNo}
 
     /// <summary>
     /// 导出方案 Excel：从 BJB 生成可再导入的 8 列元件表（与打开 Excel / 另存表格格式一致）。
+    /// 可选 <paramref name="units"/>：逗号分隔的 4 位柜码，仅导出指定控制柜及其元件。
     /// </summary>
     [HttpGet]
-    public async Task<IActionResult> ExportPlanExcel(string? id)
+    public async Task<IActionResult> ExportPlanExcel(string? id, string? units)
     {
         if (string.IsNullOrWhiteSpace(id))
             return BadRequest(new { success = false, message = "方案编号不能为空" });
@@ -1641,6 +1642,27 @@ WHERE fabh = {quotationNo}
 
         if (cabinets.Count == 0)
             return BadRequest(new { success = false, message = "当前方案暂无控制柜，无法导出" });
+
+        HashSet<string>? unitFilter = null;
+        if (!string.IsNullOrWhiteSpace(units))
+        {
+            var requested = units
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(code => code.Length == 4 && code.All(char.IsDigit))
+                .Distinct(StringComparer.Ordinal)
+                .ToHashSet(StringComparer.Ordinal);
+
+            if (requested.Count == 0)
+                return BadRequest(new { success = false, message = "未指定有效的控制柜编码" });
+
+            unitFilter = requested;
+            cabinets = cabinets
+                .Where(x => unitFilter.Contains((x.x_bm ?? string.Empty).Trim()))
+                .ToList();
+
+            if (cabinets.Count == 0)
+                return BadRequest(new { success = false, message = "所选控制柜在当前方案中不存在" });
+        }
 
         var workbook = new XSSFWorkbook();
         var sheet = workbook.CreateSheet("元件表");
@@ -1708,7 +1730,9 @@ WHERE fabh = {quotationNo}
         workbook.Write(ms, leaveOpen: true);
         ms.Position = 0;
 
-        var fileName = $"方案元件表_{fabh}_{DateTime.Now:yyyyMMddHHmmss}.xlsx";
+        var fileName = unitFilter != null
+            ? $"方案元件表_{fabh}_部分_{DateTime.Now:yyyyMMddHHmmss}.xlsx"
+            : $"方案元件表_{fabh}_{DateTime.Now:yyyyMMddHHmmss}.xlsx";
         return File(
             ms.ToArray(),
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

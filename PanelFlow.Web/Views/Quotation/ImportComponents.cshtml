@@ -43,13 +43,13 @@
         </button>
         @if (hasExistingCabinets)
         {
-            <button id="export-plan-excel-btn" type="button" class="btn btn-sm btn-outline-success" title="从数据库导出当前方案全部控制柜及元件">
+            <button id="export-plan-excel-btn" type="button" class="btn btn-sm btn-outline-success" title="从数据库导出方案；左侧勾选控制柜时仅导出所选单元">
                 <i class="bi bi-box-arrow-down me-1"></i>导出方案 Excel
             </button>
         }
         else
         {
-            <button id="export-plan-excel-btn" type="button" class="btn btn-sm btn-outline-success" disabled title="从数据库导出当前方案全部控制柜及元件">
+            <button id="export-plan-excel-btn" type="button" class="btn btn-sm btn-outline-success" disabled title="从数据库导出方案；左侧勾选控制柜时仅导出所选单元">
                 <i class="bi bi-box-arrow-down me-1"></i>导出方案 Excel
             </button>
         }
@@ -60,7 +60,7 @@
 </div>
 
 <div id="page-info-bar" class="alert alert-info py-2 px-3 small" role="status" aria-live="polite">
-    提示：可通过“打开 Excel 元件表”导入数据；支持前 8 列，最大 5000 行，遇到连续 5 空行自动结束。「另存表格」仅备份页面表格；「导出方案 Excel」导出库内整单。
+    提示：可通过“打开 Excel 元件表”导入数据；支持前 8 列，最大 5000 行，遇到连续 5 空行自动结束。「另存表格」仅备份页面表格；「导出方案 Excel」导出库内整单，左侧勾选控制柜可部分导出用于跨方案复用。
 </div>
 
 <div id="oa-save-busy" class="oa-save-busy d-none" aria-hidden="true" role="status" aria-live="assertive">
@@ -81,6 +81,13 @@
                     <i class="bi bi-diagram-3 me-1 text-primary"></i>@rootDisplay
                 </button>
             </li>
+            @if (hasExistingCabinets)
+            {
+                <li id="tree-select-actions" class="oa-tree-select-actions">
+                    <button id="select-all-units-btn" type="button" class="btn btn-sm btn-outline-secondary">全选</button>
+                    <button id="deselect-all-units-btn" type="button" class="btn btn-sm btn-outline-secondary">清空</button>
+                </li>
+            }
             <ul id="tree-children-container" class="oa-tree-children">
                 @if (Model.TreeNodes.Count == 0)
                 {
@@ -92,10 +99,16 @@
                     {
                         var hasName = !string.IsNullOrWhiteSpace(n.Name);
                         var displayPrimary = hasName ? n.Name : n.Code;
-                        <li>
+                        <li class="oa-tree-unit-row">
+                            <input type="checkbox"
+                                   class="oa-unit-checkbox form-check-input"
+                                   value="@n.Code"
+                                   data-unit-code="@n.Code"
+                                   aria-label="选择 @displayPrimary" />
                             <button type="button"
                                     class="oa-tree-link tree-node-link is-existing"
                                     data-unit-no="@n.Code"
+                                    data-unit-code="@n.Code"
                                     data-unit-name="@displayPrimary">
                                 <i class="bi bi-dot"></i>@displayPrimary（@n.Code）
                             </button>

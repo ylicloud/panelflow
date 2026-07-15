@@ -385,6 +385,8 @@
     const splitterEl = document.getElementById("tree-splitter");
     const toggleTreeBtn = document.getElementById("toggle-tree-btn");
     const treeChildrenContainer = document.getElementById("tree-children-container");
+    const selectAllUnitsBtn = document.getElementById("select-all-units-btn");
+    const deselectAllUnitsBtn = document.getElementById("deselect-all-units-btn");
     const openExcelBtn = document.getElementById("open-excel-btn");
     const checkDataBtn = document.getElementById("check-data-btn");
     const checkDataHelpBtn = document.getElementById("check-data-help-btn");
@@ -403,7 +405,130 @@
     const savePlanBtnDefaultHtml = savePlanBtn ? savePlanBtn.innerHTML : "";
     let isSavingPlan = false;
     let cachedOriginalTreeHtml = treeChildrenContainer ? treeChildrenContainer.innerHTML : "";
+    let lastClickedCheckboxIndex = -1;
+    const exportPlanBtnDefaultTitle = exportPlanExcelBtn
+        ? (exportPlanExcelBtn.getAttribute("title") || "从数据库导出方案；左侧勾选控制柜时仅导出所选单元")
+        : "";
     state.canExportPlan = hasExistingCabinetsOnLoad || !isEmptyQuotation;
+
+    const getExportableCheckboxes = () => {
+        if (!treeChildrenContainer) {
+            return [];
+        }
+        return Array.from(
+            treeChildrenContainer.querySelectorAll("li.oa-tree-unit-row .oa-unit-checkbox")
+        );
+    };
+
+    const getSelectedUnitCodes = () => {
+        return getExportableCheckboxes()
+            .filter((cb) => cb.checked)
+            .map((cb) => (cb.value || cb.dataset.unitCode || "").trim())
+            .filter((code) => !!code);
+    };
+
+    const updateExportButtonHint = () => {
+        if (!exportPlanExcelBtn) {
+            return;
+        }
+        const selectedCount = getSelectedUnitCodes().length;
+        if (selectedCount > 0) {
+            exportPlanExcelBtn.title = `导出已选 ${selectedCount} 个控制柜（${getSelectedUnitCodes().join("、")}）`;
+        } else {
+            exportPlanExcelBtn.title = exportPlanBtnDefaultTitle;
+        }
+    };
+
+    const createUnitCheckbox = (unitCode) => {
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.className = "oa-unit-checkbox form-check-input";
+        cb.value = unitCode;
+        cb.setAttribute("data-unit-code", unitCode);
+        cb.setAttribute("aria-label", `选择控制柜 ${unitCode}`);
+        return cb;
+    };
+
+    const injectCheckboxesForExistingNodes = () => {
+        if (!treeChildrenContainer) {
+            return;
+        }
+
+        treeChildrenContainer.querySelectorAll("li").forEach((li) => {
+            const btn = li.querySelector("button.tree-node-link.is-existing");
+            if (!btn || li.querySelector(".oa-unit-checkbox")) {
+                return;
+            }
+
+            const unitCode = (btn.dataset.unitCode || btn.dataset.unitNo || "").trim();
+            if (!unitCode) {
+                return;
+            }
+
+            li.classList.add("oa-tree-unit-row");
+            const cb = createUnitCheckbox(unitCode);
+            li.insertBefore(cb, btn);
+            if (!btn.dataset.unitCode) {
+                btn.setAttribute("data-unit-code", unitCode);
+            }
+        });
+    };
+
+    const handleCheckboxRangeSelect = (targetIndex, checked) => {
+        const boxes = getExportableCheckboxes();
+        if (targetIndex < 0 || targetIndex >= boxes.length) {
+            return;
+        }
+
+        const from = Math.min(lastClickedCheckboxIndex, targetIndex);
+        const to = Math.max(lastClickedCheckboxIndex, targetIndex);
+        for (let i = from; i <= to; i += 1) {
+            boxes[i].checked = checked;
+        }
+    };
+
+    const rebindTreeCheckboxEvents = () => {
+        getExportableCheckboxes().forEach((cb, index) => {
+            cb.onchange = null;
+            cb.onclick = (event) => {
+                if (event.shiftKey && lastClickedCheckboxIndex >= 0) {
+                    handleCheckboxRangeSelect(index, cb.checked);
+                }
+                lastClickedCheckboxIndex = index;
+                updateExportButtonHint();
+            };
+        });
+        updateExportButtonHint();
+    };
+
+    const selectAllExportableUnits = () => {
+        getExportableCheckboxes().forEach((cb) => {
+            cb.checked = true;
+        });
+        lastClickedCheckboxIndex = -1;
+        updateExportButtonHint();
+    };
+
+    const clearAllExportableUnits = () => {
+        getExportableCheckboxes().forEach((cb) => {
+            cb.checked = false;
+        });
+        lastClickedCheckboxIndex = -1;
+        updateExportButtonHint();
+    };
+
+    const buildExportPlanUrl = () => {
+        if (!exportPlanUrl) {
+            return "";
+        }
+        const selectedCodes = getSelectedUnitCodes();
+        if (selectedCodes.length === 0) {
+            return exportPlanUrl;
+        }
+        const url = new URL(exportPlanUrl, window.location.origin);
+        url.searchParams.set("units", selectedCodes.join(","));
+        return url.toString();
+    };
 
     /** 原方案已有单元号/名称（追加时用于唯一性校验） */
     const collectExistingUnitKeys = (rootEl) => {
@@ -933,7 +1058,9 @@
             }
 
             treeChildrenContainer.innerHTML = cachedOriginalTreeHtml;
+            injectCheckboxesForExistingNodes();
             renderPreviewNodes(previewNodes, { clearFirst: false });
+            rebindTreeCheckboxEvents();
             setInfo(`目录预览完成（追加）：保留原柜，新增 ${previewNodes.length} 个节点。`, "success");
         } else {
             renderPreviewNodes(previewNodes, { clearFirst: true });
@@ -948,6 +1075,8 @@
             return;
         }
         treeChildrenContainer.innerHTML = cachedOriginalTreeHtml;
+        injectCheckboxesForExistingNodes();
+        rebindTreeCheckboxEvents();
     };
 
     /**
@@ -1103,16 +1232,26 @@
 
     if (treeChildrenContainer) {
         treeChildrenContainer.addEventListener("click", (event) => {
-            const trigger = event.target.closest("[data-unit-no], [data-unit-name]");
+            if (event.target.closest(".oa-unit-checkbox")) {
+                return;
+            }
+
+            const trigger = event.target.closest("button.tree-node-link[data-unit-no], button.tree-node-link[data-unit-name]");
             if (!trigger) {
                 return;
             }
 
-            // 优先按原始单元号定位（与目录预览约定一致）
             const unitNo = (trigger.getAttribute("data-unit-no") || "").trim();
             const unitName = (trigger.getAttribute("data-unit-name") || "").trim();
             focusUnitBlockInGrid(unitNo || unitName);
         });
+    }
+
+    if (selectAllUnitsBtn) {
+        selectAllUnitsBtn.addEventListener("click", selectAllExportableUnits);
+    }
+    if (deselectAllUnitsBtn) {
+        deselectAllUnitsBtn.addEventListener("click", clearAllExportableUnits);
     }
 
     if (treePaneEl && splitterEl && toggleTreeBtn) {
@@ -1372,8 +1511,10 @@
                         btn.classList.remove("is-preview-new");
                         btn.classList.add("is-existing");
                     });
+                injectCheckboxesForExistingNodes();
                 cachedOriginalTreeHtml = treeChildrenContainer.innerHTML;
                 existingUnitKeys = collectExistingUnitKeys(treeChildrenContainer);
+                rebindTreeCheckboxEvents();
             }
             resetPreviewState();
             applyButtonStates();
@@ -1453,14 +1594,20 @@
 
     if (exportPlanExcelBtn) {
         exportPlanExcelBtn.addEventListener("click", async () => {
-            if (!exportPlanUrl) {
+            const requestUrl = buildExportPlanUrl();
+            if (!requestUrl) {
                 setInfo("导出方案失败：缺少导出接口地址。", "error");
                 return;
             }
 
+            const selectedCodes = getSelectedUnitCodes();
+            const exportScopeLabel = selectedCodes.length > 0
+                ? `已选 ${selectedCodes.length} 个控制柜`
+                : "库内整单";
+
             try {
-                setInfo("正在从数据库导出方案 Excel…", "info");
-                const response = await fetch(exportPlanUrl, { method: "GET" });
+                setInfo(`正在从数据库导出方案 Excel（${exportScopeLabel}）…`, "info");
+                const response = await fetch(requestUrl, { method: "GET" });
                 if (!response.ok) {
                     const contentType = (response.headers.get("content-type") || "").toLowerCase();
                     if (contentType.includes("json")) {
@@ -1472,10 +1619,10 @@
 
                 const blob = await response.blob();
                 const disposition = response.headers.get("Content-Disposition") || "";
-                const fileName = parseDownloadFileName(
-                    disposition,
-                    `方案元件表_${quotationNo}.xlsx`
-                );
+                const defaultName = selectedCodes.length > 0
+                    ? `方案元件表_${quotationNo}_部分.xlsx`
+                    : `方案元件表_${quotationNo}.xlsx`;
+                const fileName = parseDownloadFileName(disposition, defaultName);
                 const downloadUrl = window.URL.createObjectURL(blob);
                 const a = document.createElement("a");
                 a.href = downloadUrl;
@@ -1484,7 +1631,14 @@
                 a.click();
                 a.remove();
                 window.URL.revokeObjectURL(downloadUrl);
-                setInfo("方案 Excel 已生成（库内整单），请在浏览器下载中选择保存位置。", "success");
+                if (selectedCodes.length > 0) {
+                    setInfo(
+                        `方案 Excel 已生成（${exportScopeLabel}：${selectedCodes.join("、")}），可在其他方案中打开并追加导入。`,
+                        "success"
+                    );
+                } else {
+                    setInfo("方案 Excel 已生成（库内整单），请在浏览器下载中选择保存位置。", "success");
+                }
             } catch (error) {
                 const message = error instanceof Error ? error.message : "导出方案失败";
                 setInfo(message, "error");
@@ -1492,6 +1646,8 @@
         });
     }
 
+    injectCheckboxesForExistingNodes();
+    rebindTreeCheckboxEvents();
     applyButtonStates();
 
     if (checkDataHelpBtn && typeof bootstrap !== "undefined" && bootstrap.Popover) {
