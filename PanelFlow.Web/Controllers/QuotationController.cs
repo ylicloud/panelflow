@@ -1603,6 +1603,118 @@ WHERE fabh = {quotationNo}
             fileName);
     }
 
+    /// <summary>
+    /// 导出方案 Excel：从 BJB 生成可再导入的 8 列元件表（与打开 Excel / 另存表格格式一致）。
+    /// </summary>
+    [HttpGet]
+    public async Task<IActionResult> ExportPlanExcel(string? id)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+            return BadRequest(new { success = false, message = "方案编号不能为空" });
+
+        var fabh = id.Trim();
+        var loginUser = HttpContext.Session.GetLoginUser();
+        if (loginUser == null || string.IsNullOrWhiteSpace(loginUser.UserName))
+            return Unauthorized(new { success = false, message = "登录已失效，请重新登录后再试" });
+
+        var quotation = await _db.BjfatQuotations
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.fabh == fabh);
+        if (quotation == null)
+            return NotFound(new { success = false, message = "方案不存在" });
+
+        var allRows = await _db.BjbItems
+            .AsNoTracking()
+            .Where(x => x.fabh == fabh)
+            .ToListAsync();
+
+        var cabinets = allRows
+            .Where(x =>
+            {
+                var code = (x.x_bm ?? string.Empty).Trim();
+                return code.Length == 4
+                    && !string.Equals(code, "0", StringComparison.Ordinal)
+                    && !string.Equals(code, "9999", StringComparison.Ordinal);
+            })
+            .OrderBy(x => (x.x_bm ?? string.Empty).Trim(), StringComparer.Ordinal)
+            .ToList();
+
+        if (cabinets.Count == 0)
+            return BadRequest(new { success = false, message = "当前方案暂无控制柜，无法导出" });
+
+        var workbook = new XSSFWorkbook();
+        var sheet = workbook.CreateSheet("元件表");
+        var headers = new[] { "序号", "单元号", "名称", "规格", "单价", "数量", "生产厂家", "总价" };
+        var headerRow = sheet.CreateRow(0);
+        for (var c = 0; c < headers.Length; c++)
+        {
+            headerRow.CreateCell(c).SetCellValue(headers[c]);
+        }
+
+        var excelRowIndex = 1;
+        var serial = 1;
+        foreach (var cabinet in cabinets)
+        {
+            var unitCode = (cabinet.x_bm ?? string.Empty).Trim();
+            var unitName = string.IsNullOrWhiteSpace(cabinet.x_mc) ? unitCode : cabinet.x_mc.Trim();
+
+            // 柜标题行：第2列写展示名，便于再导入时作为单元号
+            var titleRow = sheet.CreateRow(excelRowIndex++);
+            titleRow.CreateCell(0).SetCellValue(serial.ToString(CultureInfo.InvariantCulture));
+            titleRow.CreateCell(1).SetCellValue(unitName);
+            titleRow.CreateCell(2).SetCellValue(string.Empty);
+            titleRow.CreateCell(3).SetCellValue(string.Empty);
+            titleRow.CreateCell(4).SetCellValue(string.Empty);
+            titleRow.CreateCell(5).SetCellValue("1");
+            titleRow.CreateCell(6).SetCellValue(string.Empty);
+            titleRow.CreateCell(7).SetCellValue(string.Empty);
+            serial += 1;
+
+            var components = allRows
+                .Where(x =>
+                {
+                    var code = (x.x_bm ?? string.Empty).Trim();
+                    return x.x_lx == 11
+                        && code.Length >= 4
+                        && code.StartsWith(unitCode, StringComparison.Ordinal);
+                })
+                .OrderBy(x => (x.x_bm ?? string.Empty).Trim(), StringComparer.Ordinal)
+                .ToList();
+
+            foreach (var component in components)
+            {
+                var price = component.x_bj_dj ?? component.x_dj ?? 0m;
+                var qty = component.x_sl ?? 0m;
+                var total = price * qty;
+                var row = sheet.CreateRow(excelRowIndex++);
+                row.CreateCell(0).SetCellValue(serial.ToString(CultureInfo.InvariantCulture));
+                row.CreateCell(1).SetCellValue(string.Empty);
+                row.CreateCell(2).SetCellValue((component.x_mc ?? string.Empty).Trim());
+                row.CreateCell(3).SetCellValue((component.x_ggxh ?? string.Empty).Trim());
+                row.CreateCell(4).SetCellValue(price.ToString("0.####", CultureInfo.InvariantCulture));
+                row.CreateCell(5).SetCellValue(qty.ToString("0.####", CultureInfo.InvariantCulture));
+                row.CreateCell(6).SetCellValue((component.x_sccj ?? string.Empty).Trim());
+                row.CreateCell(7).SetCellValue(total.ToString("0.####", CultureInfo.InvariantCulture));
+                serial += 1;
+            }
+        }
+
+        for (var c = 0; c < 8; c++)
+        {
+            sheet.AutoSizeColumn(c);
+        }
+
+        using var ms = new MemoryStream();
+        workbook.Write(ms, leaveOpen: true);
+        ms.Position = 0;
+
+        var fileName = $"方案元件表_{fabh}_{DateTime.Now:yyyyMMddHHmmss}.xlsx";
+        return File(
+            ms.ToArray(),
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            fileName);
+    }
+
     [HttpPost]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> SavePlan([FromBody] QuotationPlanSaveRequest? request)
@@ -1653,12 +1765,101 @@ WHERE fabh = {quotationNo}
             });
         }
 
+        var saveMode = (request.SaveMode ?? "overwrite").Trim();
+        if (!string.Equals(saveMode, "append", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(saveMode, "overwrite", StringComparison.OrdinalIgnoreCase))
+        {
+            return BadRequest(new { success = false, message = "保存模式无效，请使用 overwrite 或 append" });
+        }
+
+        var isAppend = string.Equals(saveMode, "append", StringComparison.OrdinalIgnoreCase);
+
+        // 追加前：单元名称不得与已有柜名/柜码冲突（避免把本方案 Excel 再追加一次）
+        List<string> existingCabinetNames = [];
+        HashSet<string> existingXbmTrimmed = new(StringComparer.Ordinal);
+        var startUnitSeq = 0;
+        if (isAppend)
+        {
+            var existingRows = await _db.BjbItems
+                .AsNoTracking()
+                .Where(x => x.fabh == fabh)
+                .Select(x => new { x.x_bm, x.x_mc, x.x_lx })
+                .ToListAsync();
+
+            foreach (var row in existingRows)
+            {
+                var code = (row.x_bm ?? string.Empty).Trim();
+                if (code.Length > 0)
+                {
+                    existingXbmTrimmed.Add(code);
+                }
+            }
+
+            startUnitSeq = GetMaxUnitSeq(existingRows.Select(x => x.x_bm));
+
+            existingCabinetNames = existingRows
+                .Select(x => new
+                {
+                    Code = (x.x_bm ?? string.Empty).Trim(),
+                    Name = (x.x_mc ?? string.Empty).Trim()
+                })
+                .Where(x => x.Code.Length == 4
+                            && !string.Equals(x.Code, "0", StringComparison.Ordinal)
+                            && !string.Equals(x.Code, "9999", StringComparison.Ordinal))
+                .SelectMany(x => new[] { x.Name, x.Code })
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var conflictNames = treeNodeNames
+                .Where(n => existingCabinetNames.Contains(n, StringComparer.OrdinalIgnoreCase))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(10)
+                .ToList();
+            if (conflictNames.Count > 0)
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = $"追加失败：以下单元号/名称与原方案重复，请修改 Excel 后再追加：{string.Join("、", conflictNames)}"
+                });
+            }
+
+            var newUnitCount = treeNodeNames.Count;
+            if (startUnitSeq + newUnitCount > 9999)
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = $"追加失败：柜码将超过 9999（当前最大 {startUnitSeq:D4}，本次新增 {newUnitCount}）。"
+                });
+            }
+        }
+
         // 第2级默认节点改由通用项字典驱动（Level=2 且 IsDefaultOnImport=1 且 IsEnabled=1，按 SortOrder）。
         // 字典为空时回退到内置默认 5 类，保证行为不退化。
         var defaultLevel2Nodes = await _elementDictService.GetDefaultImportLevel2Async();
-        var rowsToInsert = BuildRowsFromTable(tableRows, treeNodeNames, defaultLevel2Nodes);
+        var rowsToInsert = BuildRowsFromTable(tableRows, treeNodeNames, defaultLevel2Nodes, startUnitSeq);
         if (rowsToInsert.Count == 0)
             return BadRequest(new { success = false, message = "未解析到可保存的目录/元件数据" });
+
+        if (isAppend)
+        {
+            var colliding = rowsToInsert
+                .Select(r => (r.Xbm ?? string.Empty).Trim())
+                .Where(c => c.Length > 0 && existingXbmTrimmed.Contains(c))
+                .Distinct(StringComparer.Ordinal)
+                .Take(10)
+                .ToList();
+            if (colliding.Count > 0)
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = $"追加失败：生成的编码与原方案冲突（{string.Join("、", colliding)}），请刷新页面后重试。"
+                });
+            }
+        }
 
         // --- 负价格校验（Req 10.1, 10.2）：在任何 DB 操作之前 fail fast ---
         var negativePriceRows = rowsToInsert
@@ -1703,19 +1904,37 @@ WHERE fabh = {quotationNo}
         }
 
         // 校验通过后改为 NDJSON 流式回报进度：(已保存单元数 / 总单元数)
-        var unitCount = rowsToInsert.Count(x => x.Xlx == 1 && x.Xbm.Length == 4);
+        // 仅以 4 位柜节点为准推进进度，避免用 x_bm 前 4 位 GroupBy 在边界情况下合并错组。
+        var cabinetRows = rowsToInsert
+            .Where(x => x.Xlx == 1 && (x.Xbm ?? string.Empty).Trim().Length == 4)
+            .OrderBy(x => (x.Xbm ?? string.Empty).Trim(), StringComparer.Ordinal)
+            .ToList();
+        var unitCount = cabinetRows.Count;
         var componentCount = rowsToInsert.Count(x => x.Xlx == 11);
-        // 按单元编码（x_bm 前 4 位）分组写入，便于按单元推进进度；短编码单独兜底插入。
-        var unitGroups = rowsToInsert
-            .Where(r => !string.IsNullOrWhiteSpace(r.Xbm) && r.Xbm.Length >= 4)
-            .GroupBy(r => r.Xbm[..4], StringComparer.Ordinal)
-            .OrderBy(g => g.Key, StringComparer.Ordinal)
-            .ToList();
+        var progressTotal = unitCount;
+
+        var rowsByUnit = new Dictionary<string, List<BjbWriteRow>>(StringComparer.Ordinal);
+        foreach (var row in rowsToInsert)
+        {
+            var code = (row.Xbm ?? string.Empty).Trim();
+            if (code.Length < 4)
+            {
+                continue;
+            }
+
+            var unitKey = code.Length == 4 ? code : code[..4];
+            if (!rowsByUnit.TryGetValue(unitKey, out var list))
+            {
+                list = [];
+                rowsByUnit[unitKey] = list;
+            }
+
+            list.Add(row);
+        }
+
         var shortCodeRows = rowsToInsert
-            .Where(r => string.IsNullOrWhiteSpace(r.Xbm) || r.Xbm.Length < 4)
+            .Where(r => string.IsNullOrWhiteSpace(r.Xbm) || r.Xbm.Trim().Length < 4)
             .ToList();
-        // 进度分母与分组数对齐，保证界面从上到下能看到 xxx 逼近 yyy
-        var progressTotal = unitGroups.Count;
 
         HttpContext.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpResponseBodyFeature>()
             ?.DisableBuffering();
@@ -1740,26 +1959,37 @@ WHERE fabh = {quotationNo}
             type = "progress",
             current = 0,
             total = progressTotal,
+            saveMode = isAppend ? "append" : "overwrite",
             message = $"正在保存方案…（0/{progressTotal}）"
         });
 
         await using var tx = await _db.Database.BeginTransactionAsync();
         try
         {
-            await _db.Database.ExecuteSqlInterpolatedAsync(
-                $@"DELETE FROM BJB WHERE fabh = {fabh} AND x_bm NOT IN ('0', '9999')");
+            if (!isAppend)
+            {
+                await _db.Database.ExecuteSqlInterpolatedAsync(
+                    $@"DELETE FROM BJB WHERE fabh = {fabh} AND x_bm NOT IN ('0', '9999')");
+            }
 
             var current = 0;
-            foreach (var group in unitGroups)
+            foreach (var cabinet in cabinetRows)
             {
-                foreach (var row in group)
+                var unitKey = (cabinet.Xbm ?? string.Empty).Trim();
+                if (!rowsByUnit.TryGetValue(unitKey, out var groupRows))
                 {
+                    groupRows = [cabinet];
+                }
+
+                foreach (var row in groupRows)
+                {
+                    var xbm = (row.Xbm ?? string.Empty).Trim();
                     await _db.Database.ExecuteSqlInterpolatedAsync($@"
 INSERT INTO BJB
 (fabh, x_bm, x_mc, x_dw, x_dj, x_fdds, x_sl, x_bj_fdds, x_bj_dj, x_bjb_bj, x_bjb_dj,
  x_bjb_datetime, x_bjb_fdds, x_wzfy, x_flbh, x_ggxh, x_sccj, x_key_ry, x_jsgsbh, x_bz, x_wzdh, x_lx, x_cgf)
 VALUES
-({fabh}, {row.Xbm}, {row.Xmc}, {string.Empty}, {row.Xdj}, {row.Xfdds}, {row.Xsl}, {0m}, {row.XbjDj}, {row.XbjbBj}, {row.XbjbDj},
+({fabh}, {xbm}, {row.Xmc}, {string.Empty}, {row.Xdj}, {row.Xfdds}, {row.Xsl}, {0m}, {row.XbjDj}, {row.XbjbBj}, {row.XbjbDj},
  NULL, {0m}, {0m}, {string.Empty}, {row.Xggxh}, {row.Xsccj}, {string.Empty}, {0m}, {string.Empty}, {row.Xwzdh}, {row.Xlx}, {1})");
                 }
 
@@ -1769,19 +1999,20 @@ VALUES
                     type = "progress",
                     current,
                     total = progressTotal,
-                    unitCode = group.Key,
+                    unitCode = unitKey,
                     message = $"正在保存方案…（{current}/{progressTotal}）"
                 });
             }
 
             foreach (var row in shortCodeRows)
             {
+                var xbm = (row.Xbm ?? string.Empty).Trim();
                 await _db.Database.ExecuteSqlInterpolatedAsync($@"
 INSERT INTO BJB
 (fabh, x_bm, x_mc, x_dw, x_dj, x_fdds, x_sl, x_bj_fdds, x_bj_dj, x_bjb_bj, x_bjb_dj,
  x_bjb_datetime, x_bjb_fdds, x_wzfy, x_flbh, x_ggxh, x_sccj, x_key_ry, x_jsgsbh, x_bz, x_wzdh, x_lx, x_cgf)
 VALUES
-({fabh}, {row.Xbm}, {row.Xmc}, {string.Empty}, {row.Xdj}, {row.Xfdds}, {row.Xsl}, {0m}, {row.XbjDj}, {row.XbjbBj}, {row.XbjbDj},
+({fabh}, {xbm}, {row.Xmc}, {string.Empty}, {row.Xdj}, {row.Xfdds}, {row.Xsl}, {0m}, {row.XbjDj}, {row.XbjbBj}, {row.XbjbDj},
  NULL, {0m}, {0m}, {string.Empty}, {row.Xggxh}, {row.Xsccj}, {string.Empty}, {0m}, {string.Empty}, {row.Xwzdh}, {row.Xlx}, {1})");
             }
 
@@ -1790,21 +2021,25 @@ VALUES
                 await _db.Database.ExecuteSqlInterpolatedAsync(
                     $@"UPDATE BJFAT SET dqzt = {0} WHERE fabh = {fabh} AND dqzt = {1}");
             }
-            else if (unitCount == 0 && quotation.dqzt == 0)
+            else if (!isAppend && unitCount == 0 && quotation.dqzt == 0)
             {
                 await _db.Database.ExecuteSqlInterpolatedAsync(
                     $@"UPDATE BJFAT SET dqzt = {1} WHERE fabh = {fabh} AND dqzt = {0}");
             }
 
             await tx.CommitAsync();
+            var doneMessage = isAppend
+                ? $"追加保存成功：本次新增 {unitCount} 个单元，{componentCount} 个元件。"
+                : $"保存成功：共 {unitCount} 个单元，{componentCount} 个元件。";
             await EmitAsync(new
             {
                 type = "done",
                 success = true,
+                saveMode = isAppend ? "append" : "overwrite",
                 unitCount,
                 componentCount,
                 totalRows = rowsToInsert.Count,
-                message = $"保存成功：共 {unitCount} 个单元，{componentCount} 个元件。"
+                message = doneMessage
             });
         }
         catch (InvalidOperationException ex)
@@ -2059,7 +2294,8 @@ WHERE fabh = {fabh}
     internal static List<BjbWriteRow> BuildRowsFromTable(
         List<List<string?>> tableRows,
         List<string> treeNodeNames,
-        IReadOnlyList<(string Name, int Xlx)>? defaultLevel2Nodes = null)
+        IReadOnlyList<(string Name, int Xlx)>? defaultLevel2Nodes = null,
+        int startUnitSeq = 0)
     {
         var level2Nodes = defaultLevel2Nodes is { Count: > 0 }
             ? defaultLevel2Nodes
@@ -2076,8 +2312,13 @@ WHERE fabh = {fabh}
             throw new InvalidOperationException("目录树节点数量与表格单元拆分数量不一致，请重新执行目录预览。");
         }
 
+        if (startUnitSeq < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(startUnitSeq), "起始单元序号不能为负数。");
+        }
+
         var result = new List<BjbWriteRow>();
-        var unitSeq = 0;
+        var unitSeq = startUnitSeq;
         var treeIndex = 0;
         foreach (var sourceUnit in sourceUnits)
         {
@@ -2204,7 +2445,40 @@ WHERE fabh = {fabh}
             return 1;
         }
 
-        return Math.Max(1, (int)Math.Floor(value));
+        // 与前端 buildSplitNames 一致：最多拆 99
+        var n = Math.Max(1, (int)Math.Floor(value));
+        return Math.Min(99, n);
+    }
+
+    /// <summary>
+    /// 从已有 x_bm 推断最大 4 位柜序号（含 L2/L3 前缀），跳过 0/9999。
+    /// </summary>
+    internal static int GetMaxUnitSeq(IEnumerable<string?> codes)
+    {
+        var max = 0;
+        foreach (var raw in codes)
+        {
+            var code = (raw ?? string.Empty).Trim();
+            if (code.Length < 4)
+            {
+                continue;
+            }
+
+            var prefix = code[..4];
+            if (string.Equals(prefix, "9999", StringComparison.Ordinal)
+                || string.Equals(prefix, "0000", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (int.TryParse(prefix, NumberStyles.None, CultureInfo.InvariantCulture, out var seq)
+                && seq > max)
+            {
+                max = seq;
+            }
+        }
+
+        return max;
     }
 
     private static List<string> NormalizeColumns(List<string?>? source)
@@ -3186,6 +3460,10 @@ public class QuotationPlanSaveRequest
     public string Fabh { get; set; } = string.Empty;
     public List<List<string?>> TableJson { get; set; } = [];
     public List<string?> TreeNodeNames { get; set; } = [];
+
+    /// <summary>overwrite（默认）整单覆盖；append 追加到已有柜之后并续编柜码。</summary>
+    [System.Text.Json.Serialization.JsonPropertyName("saveMode")]
+    public string SaveMode { get; set; } = "overwrite";
 }
 
 public class AutoFillPriceRequest

@@ -299,6 +299,9 @@
         hasLoadedExcelData: false,
         hasCheckPassed: false,
         hasPreviewSucceeded: false,
+        /** @type {null | "overwrite" | "append"} */
+        importMode: null,
+        canExportPlan: false,
         invalidCells: new Set(),
         invalidRows: new Set(),
     };
@@ -307,9 +310,11 @@
     const uploadUrl = container.dataset.uploadUrl || "";
     const saveUrl = container.dataset.saveUrl || "";
     const savePlanUrl = container.dataset.savePlanUrl || "";
+    const exportPlanUrl = container.dataset.exportPlanUrl || "";
     const quotationNo = container.dataset.quotationNo || "";
     const currentStatus = Number.parseInt(container.dataset.currentStatus || "", 10);
     const isEmptyQuotation = currentStatus === 1;
+    const hasExistingCabinetsOnLoad = container.dataset.hasExistingCabinets === "1";
     const infoBarEl = document.getElementById("page-info-bar");
     const treePaneEl = document.getElementById("tree-pane");
     const splitterEl = document.getElementById("tree-splitter");
@@ -319,14 +324,46 @@
     const checkDataBtn = document.getElementById("check-data-btn");
     const previewTreeBtn = document.getElementById("preview-tree-btn");
     const saveExcelBtn = document.getElementById("save-excel-btn");
+    const exportPlanExcelBtn = document.getElementById("export-plan-excel-btn");
     const savePlanBtn = document.getElementById("save-plan-btn");
     const excelInput = document.getElementById("excel-file-input");
     const uploadForm = document.getElementById("excel-upload-form");
     const saveBusyEl = document.getElementById("oa-save-busy");
     const saveBusyProgressEl = document.getElementById("oa-save-busy-progress");
     const saveBusyTitleEl = document.getElementById("oa-save-busy-title");
+    const previewModeModalEl = document.getElementById("preview-mode-modal");
+    const previewModeOverwriteBtn = document.getElementById("preview-mode-overwrite");
+    const previewModeAppendBtn = document.getElementById("preview-mode-append");
     const savePlanBtnDefaultHtml = savePlanBtn ? savePlanBtn.innerHTML : "";
     let isSavingPlan = false;
+    let cachedOriginalTreeHtml = treeChildrenContainer ? treeChildrenContainer.innerHTML : "";
+    state.canExportPlan = hasExistingCabinetsOnLoad || !isEmptyQuotation;
+
+    /** 原方案已有单元号/名称（追加时用于唯一性校验） */
+    const collectExistingUnitKeys = (rootEl) => {
+        const keys = new Set();
+        if (!rootEl) {
+            return keys;
+        }
+        rootEl.querySelectorAll("button.tree-node-link").forEach((btn) => {
+            const no = (btn.dataset.unitNo || "").trim();
+            const name = (btn.dataset.unitName || "").trim();
+            if (no) {
+                keys.add(no.toLowerCase());
+            }
+            if (name) {
+                keys.add(name.toLowerCase());
+            }
+        });
+        return keys;
+    };
+    let existingUnitKeys = collectExistingUnitKeys(
+        (() => {
+            const tmp = document.createElement("ul");
+            tmp.innerHTML = cachedOriginalTreeHtml;
+            return tmp;
+        })()
+    );
 
     if (!openExcelBtn || !excelInput || !uploadForm || !uploadUrl) {
         return;
@@ -511,7 +548,16 @@
         checkDataBtn.disabled = isSavingPlan || !state.hasLoadedExcelData;
         previewTreeBtn.disabled = isSavingPlan || !(state.hasLoadedExcelData && state.hasCheckPassed);
         saveExcelBtn.disabled = isSavingPlan || !state.hasLoadedExcelData;
-        savePlanBtn.disabled = isSavingPlan || !(state.hasLoadedExcelData && state.hasCheckPassed && state.hasPreviewSucceeded);
+        if (exportPlanExcelBtn) {
+            exportPlanExcelBtn.disabled = isSavingPlan || !state.canExportPlan;
+        }
+        savePlanBtn.disabled = isSavingPlan
+            || !(state.hasLoadedExcelData && state.hasCheckPassed && state.hasPreviewSucceeded && state.importMode);
+    };
+
+    const resetPreviewState = () => {
+        state.hasPreviewSucceeded = false;
+        state.importMode = null;
     };
 
     const setSavingUi = (busy) => {
@@ -652,27 +698,21 @@
             return [];
         }
 
-        return Array.from(treeChildrenContainer.querySelectorAll("button.tree-node-link"))
-            .map((btn) => (btn.dataset.unitName || btn.textContent || "").trim())
+        // 仅提交本次预览新增节点；追加模式下绝不能把原柜名一并提交
+        return Array.from(treeChildrenContainer.querySelectorAll("button.tree-node-link[data-from-preview='1']"))
+            .map((btn) => (btn.dataset.unitName || "").trim())
             .filter((name) => !!name);
     };
 
-    const previewTreeFromGrid = () => {
+    const renderPreviewNodes = (previewNodes, { clearFirst }) => {
         if (!treeChildrenContainer) {
-            return false;
+            return;
         }
 
-        const rows = getRowsForValidation();
-        const previewNodes = buildPreviewNodes(rows);
-
-        treeChildrenContainer.innerHTML = "";
-        if (previewNodes.length === 0) {
-            const emptyLi = document.createElement("li");
-            emptyLi.className = "text-muted small ms-4";
-            emptyLi.textContent = "目录预览为空：表格第2列暂无有效单元号。";
-            treeChildrenContainer.appendChild(emptyLi);
-            setInfo("目录预览完成：未找到可用单元号。", "error");
-            return false;
+        if (clearFirst) {
+            treeChildrenContainer.innerHTML = "";
+        } else {
+            treeChildrenContainer.querySelectorAll("li.oa-tree-empty, li.text-muted").forEach((el) => el.remove());
         }
 
         previewNodes.forEach((node) => {
@@ -680,16 +720,156 @@
             li.className = "ms-4 mb-1";
             const btn = document.createElement("button");
             btn.type = "button";
-            btn.className = "tree-node-link";
+            btn.className = "tree-node-link is-preview-new";
             btn.setAttribute("data-unit-no", node.unitNo);
             btn.setAttribute("data-unit-name", node.displayName);
+            btn.setAttribute("data-from-preview", "1");
             btn.innerHTML = `<i class="bi bi-dot"></i>${node.displayName}`;
             li.appendChild(btn);
             treeChildrenContainer.appendChild(li);
         });
+    };
 
-        setInfo(`目录预览完成：已生成 ${previewNodes.length} 个目录子节点。`, "success");
+    /**
+     * @param {"overwrite" | "append"} mode
+     * @returns {boolean}
+     */
+    const previewTreeFromGrid = (mode) => {
+        if (!treeChildrenContainer) {
+            return false;
+        }
+
+        const rows = getRowsForValidation();
+        const previewNodes = buildPreviewNodes(rows);
+
+        if (previewNodes.length === 0) {
+            if (mode === "overwrite") {
+                treeChildrenContainer.innerHTML = "";
+                const emptyLi = document.createElement("li");
+                emptyLi.className = "text-muted small ms-4";
+                emptyLi.textContent = "目录预览为空：表格第2列暂无有效单元号。";
+                treeChildrenContainer.appendChild(emptyLi);
+            }
+            setInfo("目录预览完成：未找到可用单元号。", "error");
+            return false;
+        }
+
+        if (mode === "append") {
+            const conflicts = [];
+            const seen = new Set();
+            previewNodes.forEach((node) => {
+                const unitNo = (node.unitNo || "").trim();
+                const displayName = (node.displayName || "").trim();
+                [unitNo, displayName].forEach((key) => {
+                    if (!key) {
+                        return;
+                    }
+                    const lower = key.toLowerCase();
+                    if (existingUnitKeys.has(lower) && !seen.has(lower)) {
+                        seen.add(lower);
+                        conflicts.push(key);
+                    }
+                });
+            });
+            if (conflicts.length > 0) {
+                restoreOriginalTree();
+                const shown = conflicts.slice(0, 8).join("、");
+                const more = conflicts.length > 8 ? ` 等 ${conflicts.length} 项` : "";
+                setInfo(
+                    `追加失败：Excel 中的单元号/名称与原方案重复（${shown}${more}）。请修改单元号后再追加，或改用覆盖。`,
+                    "error"
+                );
+                return false;
+            }
+
+            treeChildrenContainer.innerHTML = cachedOriginalTreeHtml;
+            renderPreviewNodes(previewNodes, { clearFirst: false });
+            setInfo(`目录预览完成（追加）：保留原柜，新增 ${previewNodes.length} 个节点。`, "success");
+        } else {
+            renderPreviewNodes(previewNodes, { clearFirst: true });
+            setInfo(`目录预览完成（覆盖）：已生成 ${previewNodes.length} 个目录子节点。`, "success");
+        }
+
         return true;
+    };
+
+    const restoreOriginalTree = () => {
+        if (!treeChildrenContainer) {
+            return;
+        }
+        treeChildrenContainer.innerHTML = cachedOriginalTreeHtml;
+    };
+
+    /**
+     * 非空报价单：弹出覆盖/追加/取消；空单直接覆盖预览。
+     */
+    const askPreviewModeAndRun = () => {
+        const runMode = (mode) => {
+            const success = previewTreeFromGrid(mode);
+            state.importMode = success ? mode : null;
+            state.hasPreviewSucceeded = success;
+            applyButtonStates();
+        };
+
+        if (isEmptyQuotation && !hasExistingCabinetsOnLoad) {
+            runMode("overwrite");
+            return;
+        }
+
+        if (!previewModeModalEl || typeof bootstrap === "undefined" || !bootstrap.Modal) {
+            // 无 Bootstrap 时回退为 confirm 选择
+            const overwrite = window.confirm("当前报价单有数据。确定后覆盖原内容；取消则可在下一提示选择追加。");
+            if (overwrite) {
+                runMode("overwrite");
+                return;
+            }
+            const append = window.confirm("是否将本次 Excel 追加到原报价单之后？");
+            if (append) {
+                runMode("append");
+                return;
+            }
+            restoreOriginalTree();
+            resetPreviewState();
+            applyButtonStates();
+            setInfo("已取消目录预览。", "info");
+            return;
+        }
+
+        const modal = bootstrap.Modal.getOrCreateInstance(previewModeModalEl);
+        let chosen = false;
+        const onOverwrite = () => {
+            chosen = true;
+            cleanup();
+            modal.hide();
+            runMode("overwrite");
+        };
+        const onAppend = () => {
+            chosen = true;
+            cleanup();
+            modal.hide();
+            runMode("append");
+        };
+        const onHidden = () => {
+            cleanup();
+            if (!chosen) {
+                restoreOriginalTree();
+                resetPreviewState();
+                applyButtonStates();
+                setInfo("已取消目录预览。", "info");
+            }
+        };
+        const cleanup = () => {
+            previewModeOverwriteBtn?.removeEventListener("click", onOverwrite);
+            previewModeAppendBtn?.removeEventListener("click", onAppend);
+            previewModeModalEl.removeEventListener("hidden.bs.modal", onHidden);
+        };
+
+        resetPreviewState();
+        applyButtonStates();
+        previewModeOverwriteBtn?.addEventListener("click", onOverwrite);
+        previewModeAppendBtn?.addEventListener("click", onAppend);
+        previewModeModalEl.addEventListener("hidden.bs.modal", onHidden);
+        modal.show();
     };
 
     // 调用顶部的纯函数 validateRows(rows)，并把结果同步到 state
@@ -773,13 +953,15 @@
 
     if (treeChildrenContainer) {
         treeChildrenContainer.addEventListener("click", (event) => {
-            const trigger = event.target.closest("[data-unit-name]");
+            const trigger = event.target.closest("[data-unit-no], [data-unit-name]");
             if (!trigger) {
                 return;
             }
 
-            const unitName = trigger.getAttribute("data-unit-name") || "";
-            focusUnitBlockInGrid(unitName);
+            // 优先按原始单元号定位（与目录预览约定一致）
+            const unitNo = (trigger.getAttribute("data-unit-no") || "").trim();
+            const unitName = (trigger.getAttribute("data-unit-name") || "").trim();
+            focusUnitBlockInGrid(unitNo || unitName);
         });
     }
 
@@ -855,7 +1037,7 @@
         }
         if (state.hasLoadedExcelData) {
             state.hasCheckPassed = false;
-            state.hasPreviewSucceeded = false;
+            resetPreviewState();
             applyButtonStates();
         }
     });
@@ -863,7 +1045,7 @@
     hot.addHook("afterCreateRow", () => {
         if (state.hasLoadedExcelData) {
             state.hasCheckPassed = false;
-            state.hasPreviewSucceeded = false;
+            resetPreviewState();
             applyButtonStates();
         }
     });
@@ -871,7 +1053,7 @@
     hot.addHook("afterRemoveRow", () => {
         if (state.hasLoadedExcelData) {
             state.hasCheckPassed = false;
-            state.hasPreviewSucceeded = false;
+            resetPreviewState();
             applyButtonStates();
         }
     });
@@ -901,7 +1083,7 @@
             hot.loadData(rows);
             state.hasLoadedExcelData = rows.length > 0;
             state.hasCheckPassed = false;
-            state.hasPreviewSucceeded = false;
+            resetPreviewState();
             applyButtonStates();
             const limitHint = result.reachedLimit ? "（已达到 5000 行上限）" : "";
             setInfo(`已加载 ${rows.length} 行数据${limitHint}`, "success");
@@ -919,7 +1101,7 @@
         if (errors.length === 0) {
             hot.render();
             state.hasCheckPassed = state.hasLoadedExcelData;
-            state.hasPreviewSucceeded = false;
+            resetPreviewState();
             applyButtonStates();
             setInfo(`数据检查通过。已重排序号 1–${serialCount}。`, "success");
             return;
@@ -927,7 +1109,7 @@
 
         hot.render();
         state.hasCheckPassed = false;
-        state.hasPreviewSucceeded = false;
+        resetPreviewState();
         applyButtonStates();
         setValidationErrors(errors);
     });
@@ -945,9 +1127,7 @@
     });
 
     previewTreeBtn.addEventListener("click", () => {
-        const success = previewTreeFromGrid();
-        state.hasPreviewSucceeded = success;
-        applyButtonStates();
+        askPreviewModeAndRun();
     });
 
     savePlanBtn.addEventListener("click", async () => {
@@ -955,14 +1135,24 @@
             return;
         }
 
-        if (!isEmptyQuotation) {
-            const firstConfirm = window.confirm("当前报价单有数据,导入时会清空原来数据,是否继续?");
-            if (!firstConfirm) {
+        if (!state.importMode) {
+            setInfo("请先执行目录预览并选择覆盖或追加。", "error");
+            return;
+        }
+
+        const newUnitCount = getTreeNodeNamesForSave().length;
+        if (state.importMode === "overwrite" && !isEmptyQuotation) {
+            const ok = window.confirm(
+                `将覆盖原报价单全部内容，仅保留本次 Excel 中的 ${newUnitCount} 个控制柜。是否继续？`
+            );
+            if (!ok) {
                 return;
             }
-
-            const secondConfirm = window.confirm("确定要覆盖当前报价单吗?");
-            if (!secondConfirm) {
+        } else if (state.importMode === "append") {
+            const ok = window.confirm(
+                `将向原报价单追加 ${newUnitCount} 个控制柜（原有内容保留，新柜码续编）。是否继续？`
+            );
+            if (!ok) {
                 return;
             }
         }
@@ -972,9 +1162,14 @@
             return;
         }
 
+        if (state.importMode !== "overwrite" && state.importMode !== "append") {
+            setInfo("保存方案失败：未选择覆盖或追加模式。", "error");
+            return;
+        }
+
         const antiForgeryToken = getToken();
         setSavingUi(true);
-        updateSaveProgress(0, 0, "正在保存方案，请稍候…");
+        updateSaveProgress(0, newUnitCount, `正在保存方案…（0/${newUnitCount}）`);
         try {
             const response = await fetch(savePlanUrl, {
                 method: "POST",
@@ -985,7 +1180,8 @@
                 body: JSON.stringify({
                     fabh: quotationNo,
                     tableJson: getRowsForValidation(),
-                    treeNodeNames: getTreeNodeNamesForSave()
+                    treeNodeNames: getTreeNodeNamesForSave(),
+                    saveMode: state.importMode === "append" ? "append" : "overwrite"
                 })
             });
 
@@ -1002,8 +1198,25 @@
             const result = await consumeSavePlanResponse(response);
             const unitCount = Number(result.unitCount);
             const componentCount = Number(result.componentCount);
+            if (Number.isFinite(unitCount) && unitCount > 0) {
+                state.canExportPlan = true;
+            }
+            // 保存成功后，当前树视为新的「原树」，便于同页再次追加
+            if (treeChildrenContainer) {
+                treeChildrenContainer.querySelectorAll("button.tree-node-link[data-from-preview='1']")
+                    .forEach((btn) => {
+                        btn.removeAttribute("data-from-preview");
+                        btn.classList.remove("is-preview-new");
+                        btn.classList.add("is-existing");
+                    });
+                cachedOriginalTreeHtml = treeChildrenContainer.innerHTML;
+                existingUnitKeys = collectExistingUnitKeys(treeChildrenContainer);
+            }
+            resetPreviewState();
+            applyButtonStates();
+
             if (Number.isFinite(unitCount) && Number.isFinite(componentCount)) {
-                setInfo(`保存成功：共 ${unitCount} 个单元，${componentCount} 个元件。`, "success");
+                setInfo(result.message || `保存成功：共 ${unitCount} 个单元，${componentCount} 个元件。`, "success");
             } else {
                 setInfo(result.message || "保存方案成功。", "success");
             }
@@ -1015,15 +1228,30 @@
         }
     });
 
+    const parseDownloadFileName = (disposition, fallback) => {
+        let fileName = fallback;
+        const utf8Match = disposition.match(/filename\*=UTF-8''([^;\s]+)/i);
+        if (utf8Match) {
+            fileName = decodeURIComponent(utf8Match[1]);
+        } else {
+            const plainMatch = disposition.match(/filename="([^"]+)"/i)
+                || disposition.match(/filename=([^;\s]+)/i);
+            if (plainMatch) {
+                fileName = plainMatch[1];
+            }
+        }
+        return fileName;
+    };
+
     saveExcelBtn.addEventListener("click", async () => {
         if (!saveUrl) {
-            setInfo("另存excel失败：缺少保存接口地址。", "error");
+            setInfo("另存表格失败：缺少保存接口地址。", "error");
             return;
         }
 
         const antiForgeryToken = getToken();
         try {
-            setInfo("正在生成 Excel 文件...", "info");
+            setInfo("正在生成表格 Excel（仅当前页面表格）…", "info");
             const response = await fetch(saveUrl, {
                 method: "POST",
                 headers: {
@@ -1041,18 +1269,10 @@
 
             const blob = await response.blob();
             const disposition = response.headers.get("Content-Disposition") || "";
-            // 优先 filename*=UTF-8''xxx；勿用 [^"]+ 匹配无引号 filename=，否则会吞掉后续 ; filename*=…
-            let fileName = `报价元件表_${quotationNo}.xlsx`;
-            const utf8Match = disposition.match(/filename\*=UTF-8''([^;\s]+)/i);
-            if (utf8Match) {
-                fileName = decodeURIComponent(utf8Match[1]);
-            } else {
-                const plainMatch = disposition.match(/filename="([^"]+)"/i)
-                    || disposition.match(/filename=([^;\s]+)/i);
-                if (plainMatch) {
-                    fileName = plainMatch[1];
-                }
-            }
+            const fileName = parseDownloadFileName(
+                disposition,
+                `报价元件表_${quotationNo}.xlsx`
+            );
             const downloadUrl = window.URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = downloadUrl;
@@ -1061,12 +1281,53 @@
             a.click();
             a.remove();
             window.URL.revokeObjectURL(downloadUrl);
-            setInfo("Excel 已生成，请在浏览器下载中选择保存位置。", "success");
+            setInfo("表格 Excel 已生成（仅当前页面表格），请在浏览器下载中选择保存位置。", "success");
         } catch (error) {
-            const message = error instanceof Error ? error.message : "另存excel失败";
+            const message = error instanceof Error ? error.message : "另存表格失败";
             setInfo(message, "error");
         }
     });
+
+    if (exportPlanExcelBtn) {
+        exportPlanExcelBtn.addEventListener("click", async () => {
+            if (!exportPlanUrl) {
+                setInfo("导出方案失败：缺少导出接口地址。", "error");
+                return;
+            }
+
+            try {
+                setInfo("正在从数据库导出方案 Excel…", "info");
+                const response = await fetch(exportPlanUrl, { method: "GET" });
+                if (!response.ok) {
+                    const contentType = (response.headers.get("content-type") || "").toLowerCase();
+                    if (contentType.includes("json")) {
+                        const fail = await response.json();
+                        throw new Error(fail.message || "导出方案失败");
+                    }
+                    throw new Error(`导出方案失败（HTTP ${response.status}）`);
+                }
+
+                const blob = await response.blob();
+                const disposition = response.headers.get("Content-Disposition") || "";
+                const fileName = parseDownloadFileName(
+                    disposition,
+                    `方案元件表_${quotationNo}.xlsx`
+                );
+                const downloadUrl = window.URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = downloadUrl;
+                a.download = fileName;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(downloadUrl);
+                setInfo("方案 Excel 已生成（库内整单），请在浏览器下载中选择保存位置。", "success");
+            } catch (error) {
+                const message = error instanceof Error ? error.message : "导出方案失败";
+                setInfo(message, "error");
+            }
+        });
+    }
 
     applyButtonStates();
 })();

@@ -5,7 +5,9 @@
     var uploadUrl = Url.Action("UploadImportExcel", "Quotation", new { id = Model.QuotationNo }) ?? string.Empty;
     var saveExcelUrl = Url.Action("SaveImportExcel", "Quotation") ?? string.Empty;
     var savePlanUrl = Url.Action("SavePlan", "Quotation") ?? string.Empty;
+    var exportPlanUrl = Url.Action("ExportPlanExcel", "Quotation", new { id = Model.QuotationNo }) ?? string.Empty;
     var rootDisplay = string.IsNullOrWhiteSpace(Model.QuotationName) ? Model.QuotationNo : Model.QuotationName;
+    var hasExistingCabinets = Model.TreeNodes.Count > 0;
 }
 <link rel="stylesheet" href="~/lib/handsontable/handsontable.full.min.css" />
 <link rel="stylesheet" href="~/css/quotation-import.css" asp-append-version="true" />
@@ -24,9 +26,21 @@
         <button id="preview-tree-btn" type="button" class="btn btn-sm btn-outline-info" disabled>
             <i class="bi bi-diagram-3 me-1"></i>目录预览
         </button>
-        <button id="save-excel-btn" type="button" class="btn btn-sm btn-outline-success" disabled>
-            <i class="bi bi-download me-1"></i>另存 Excel
+        <button id="save-excel-btn" type="button" class="btn btn-sm btn-outline-success" disabled title="仅导出当前页面表格（不含库内整单）">
+            <i class="bi bi-download me-1"></i>另存表格
         </button>
+        @if (hasExistingCabinets)
+        {
+            <button id="export-plan-excel-btn" type="button" class="btn btn-sm btn-outline-success" title="从数据库导出当前方案全部控制柜及元件">
+                <i class="bi bi-box-arrow-down me-1"></i>导出方案 Excel
+            </button>
+        }
+        else
+        {
+            <button id="export-plan-excel-btn" type="button" class="btn btn-sm btn-outline-success" disabled title="从数据库导出当前方案全部控制柜及元件">
+                <i class="bi bi-box-arrow-down me-1"></i>导出方案 Excel
+            </button>
+        }
         <button id="save-plan-btn" type="button" class="btn btn-sm btn-primary" disabled>
             <i class="bi bi-save me-1"></i>保存方案
         </button>
@@ -34,7 +48,7 @@
 </div>
 
 <div id="page-info-bar" class="alert alert-info py-2 px-3 small" role="status" aria-live="polite">
-    提示：可通过“打开 Excel 元件表”导入数据；支持前 8 列，最大 5000 行，遇到连续 5 空行自动结束。
+    提示：可通过“打开 Excel 元件表”导入数据；支持前 8 列，最大 5000 行，遇到连续 5 空行自动结束。「另存表格」仅备份页面表格；「导出方案 Excel」导出库内整单。
 </div>
 
 <div id="oa-save-busy" class="oa-save-busy d-none" aria-hidden="true" role="status" aria-live="assertive">
@@ -68,7 +82,7 @@
                         var displayPrimary = hasName ? n.Name : n.Code;
                         <li>
                             <button type="button"
-                                    class="oa-tree-link tree-node-link"
+                                    class="oa-tree-link tree-node-link is-existing"
                                     data-unit-no="@n.Code"
                                     data-unit-name="@displayPrimary">
                                 <i class="bi bi-dot"></i>@displayPrimary（@n.Code）
@@ -87,8 +101,10 @@
              data-upload-url="@uploadUrl"
              data-save-url="@saveExcelUrl"
              data-save-plan-url="@savePlanUrl"
+             data-export-plan-url="@exportPlanUrl"
              data-quotation-no="@Model.QuotationNo"
              data-current-status="@Model.CurrentStatus"
+             data-has-existing-cabinets="@(hasExistingCabinets ? "1" : "0")"
              style="height: 100%;">
         </div>
         <form id="excel-upload-form" class="d-none" method="post" enctype="multipart/form-data">
@@ -96,6 +112,30 @@
             <input id="excel-file-input" type="file" name="file" accept=".xls,.xlsx" />
         </form>
     </main>
+</div>
+
+<div class="modal fade" id="preview-mode-modal" tabindex="-1" role="dialog" aria-labelledby="preview-mode-title" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="preview-mode-title">目录预览方式</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-2">当前报价单已有控制柜。请选择如何处理本次 Excel：</p>
+                <ul class="small text-muted mb-0">
+                    <li><strong>覆盖</strong>：清空原方案内容，仅保留本次 Excel 中的控制柜及元件。</li>
+                    <li><strong>追加</strong>：保留原方案，将本次 Excel 中的控制柜追加到后面。</li>
+                    <li><strong>取消</strong>：不做任何操作。</li>
+                </ul>
+            </div>
+            <div class="modal-footer flex-wrap gap-2">
+                <button type="button" class="btn btn-outline-danger" id="preview-mode-overwrite">覆盖原报价单</button>
+                <button type="button" class="btn btn-primary" id="preview-mode-append">追加到原报价单</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="preview-mode-cancel">取消</button>
+            </div>
+        </div>
+    </div>
 </div>
 
 <div class="modal fade" id="save-plan-confirm-modal" tabindex="-1" role="dialog" aria-labelledby="save-plan-confirm-title" aria-hidden="true">

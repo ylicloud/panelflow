@@ -101,6 +101,23 @@
     margin-left: 1.25rem;
 }
 
+.oa-tree-children .tree-node-link.is-existing {
+    color: #6c757d;
+}
+
+.oa-tree-children .tree-node-link.is-preview-new {
+    color: #0d6efd;
+    font-weight: 600;
+}
+
+.oa-tree-children .tree-node-link.is-preview-new::after {
+    content: "（新增）";
+    font-size: 0.75em;
+    font-weight: 400;
+    margin-left: 0.25rem;
+    color: #0d6efd;
+}
+
 #tree-children-container {
     list-style: none;
     padding-left: 0;
