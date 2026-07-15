@@ -2772,6 +2772,53 @@ WHERE fabh = {fabh}
         return RedirectToAction(nameof(Index));
     }
 
+    /// <summary>
+    /// 浅拷贝报价单（BJFAT + BJB），生成新编号；不含汇总/合同/采购。
+    /// </summary>
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> Clone(QuotationCloneRequest request)
+    {
+        var loginUser = HttpContext.Session.GetLoginUser();
+        var userName = (loginUser?.UserName ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(userName))
+        {
+            TempData["ErrorMessage"] = "登录已失效，请重新登录后再试";
+            return RedirectToAction(nameof(Index));
+        }
+
+        if (request == null || string.IsNullOrWhiteSpace(request.SourceFabh))
+        {
+            TempData["ErrorMessage"] = "源报价单编号不能为空";
+            return RedirectToAction(nameof(Index));
+        }
+
+        try
+        {
+            var (success, message, newFabh) = await _quotationService.CloneAsync(
+                request.SourceFabh,
+                request.NewFabh ?? string.Empty,
+                request.NewName,
+                request.CustomerNo,
+                request.Remark,
+                userName);
+
+            TempData[success ? "SuccessMessage" : "ErrorMessage"] = message;
+            if (success && !string.IsNullOrWhiteSpace(newFabh))
+            {
+                return RedirectToAction(nameof(Details), new { id = newFabh });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "复制报价单失败。source={Source}, new={New}, user={User}",
+                request.SourceFabh, request.NewFabh, userName);
+            TempData["ErrorMessage"] = $"复制报价单失败：{ex.Message}";
+        }
+
+        return RedirectToAction(nameof(Index));
+    }
+
     [HttpGet]
     public IActionResult MergeExcel()
     {
@@ -3368,6 +3415,26 @@ WHERE fabh = {fabh}
         });
     }
 
+}
+
+public class QuotationCloneRequest
+{
+    [Required(ErrorMessage = "源报价单编号不能为空")]
+    [StringLength(20)]
+    public string SourceFabh { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "请输入新报价单编号")]
+    [StringLength(20, ErrorMessage = "新编号最多 20 个字符")]
+    public string NewFabh { get; set; } = string.Empty;
+
+    [StringLength(50, ErrorMessage = "名称最多 50 个字符")]
+    public string? NewName { get; set; }
+
+    [StringLength(10)]
+    public string? CustomerNo { get; set; }
+
+    [StringLength(50)]
+    public string? Remark { get; set; }
 }
 
 public class QuotationListViewModel

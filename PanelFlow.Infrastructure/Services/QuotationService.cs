@@ -348,6 +348,133 @@ VALUES
         };
     }
 
+    public async Task<(bool Success, string Message, string? NewFabh)> CloneAsync(
+        string sourceFabh,
+        string newFabh,
+        string? newName,
+        string? customerNo,
+        string? remark,
+        string operatorUserName)
+    {
+        var sourceKey = Safe(sourceFabh, 20);
+        var newKey = Safe(newFabh, 20);
+        var operatorName = Safe(operatorUserName, 10);
+
+        if (string.IsNullOrWhiteSpace(sourceKey))
+            return (false, "源报价单编号不能为空", null);
+        if (string.IsNullOrWhiteSpace(newKey))
+            return (false, "新报价单编号不能为空", null);
+        if (string.IsNullOrWhiteSpace(operatorName))
+            return (false, "当前登录用户不能为空", null);
+        if (string.Equals(sourceKey, newKey, StringComparison.OrdinalIgnoreCase))
+            return (false, "新编号不能与源编号相同", null);
+
+        var source = await FindQuotationEntityAsync(sourceKey);
+        if (source == null)
+            return (false, "源报价单不存在", null);
+
+        var exists = await _db.BjfatQuotations.AsNoTracking().AnyAsync(x => x.fabh == newKey);
+        if (exists)
+            return (false, $"报价单编号 \"{newKey}\" 已存在", null);
+
+        var bjbExists = await _db.BjbItems.AsNoTracking().AnyAsync(x => x.fabh == newKey);
+        if (bjbExists)
+            return (false, $"BJB 中已存在方案编号 \"{newKey}\"，不能重复创建", null);
+
+        var resolvedCustomer = Safe(
+            string.IsNullOrWhiteSpace(customerNo) ? source.khbh : customerNo,
+            10);
+        if (string.IsNullOrWhiteSpace(resolvedCustomer))
+            return (false, "客户编号不能为空", null);
+
+        var sourceName = (source.famc ?? string.Empty).Trim();
+        var resolvedName = Safe(
+            string.IsNullOrWhiteSpace(newName)
+                ? (string.IsNullOrWhiteSpace(sourceName) ? $"{sourceKey}_副本" : $"{sourceName}_副本")
+                : newName,
+            50);
+        if (string.IsNullOrWhiteSpace(resolvedName))
+            return (false, "报价单名称不能为空", null);
+
+        var resolvedRemark = Safe(
+            remark ?? source.bz,
+            50);
+
+        // 新单状态：有柜→草稿(0)，无柜→无内容(1)；从不复制「已成立」
+        var hasCabinets = await _db.BjbItems.AsNoTracking()
+            .Where(x => x.fabh == sourceKey)
+            .Select(x => x.x_bm)
+            .ToListAsync();
+        var cabinetCount = hasCabinets.Count(raw =>
+        {
+            var code = (raw ?? string.Empty).Trim();
+            return code.Length == 4
+                   && !string.Equals(code, "0", StringComparison.Ordinal)
+                   && !string.Equals(code, "9999", StringComparison.Ordinal);
+        });
+        var newDqzt = cabinetCount > 0 ? 0 : 1;
+
+        var previousTimeout = _db.Database.GetCommandTimeout();
+        _db.Database.SetCommandTimeout(600);
+
+        try
+        {
+            await using var tx = await _db.Database.BeginTransactionAsync();
+            try
+            {
+                _db.BjfatQuotations.Add(new BjfatQuotation
+                {
+                    fabh = newKey,
+                    fasj = DateTime.Now,
+                    famc = resolvedName,
+                    famxbh = source.famxbh ?? 0m,
+                    bjr = operatorName,
+                    bz = resolvedRemark,
+                    khbh = resolvedCustomer,
+                    falx = source.falx == 0 ? 1 : source.falx,
+                    dqzt = newDqzt
+                });
+                await _db.SaveChangesAsync();
+
+                // 浅拷贝：仅 BJB 全行改 fabh；不含汇总/合同/采购
+                var copied = await _db.Database.ExecuteSqlInterpolatedAsync($@"
+INSERT INTO BJB
+(fabh, x_bm, x_mc, x_dw, x_dj, x_fdds, x_sl, x_bj_fdds, x_bj_dj, x_bjb_bj, x_bjb_dj,
+ x_bjb_datetime, x_bjb_fdds, x_wzfy, x_flbh, x_ggxh, x_sccj, x_key_ry, x_jsgsbh, x_bz, x_wzdh, x_lx, x_cgf)
+SELECT
+{newKey}, x_bm, x_mc, x_dw, x_dj, x_fdds, x_sl, x_bj_fdds, x_bj_dj, x_bjb_bj, x_bjb_dj,
+ x_bjb_datetime, x_bjb_fdds, x_wzfy, x_flbh, x_ggxh, x_sccj, x_key_ry, x_jsgsbh, x_bz, x_wzdh, x_lx, x_cgf
+FROM BJB
+WHERE fabh = {sourceKey}");
+
+                if (copied <= 0)
+                {
+                    await tx.RollbackAsync();
+                    return (false, "复制明细失败：源单 BJB 无数据", null);
+                }
+
+                await tx.CommitAsync();
+                return (true,
+                    $"已复制为新报价单 {newKey}（共 {copied} 条明细；不含汇总/合同；原单未改动）",
+                    newKey);
+            }
+            catch (SqlException ex) when (ex.Number == -2)
+            {
+                await tx.RollbackAsync();
+                return (false, "复制操作超时（数据量较大），请稍后重试", null);
+            }
+            catch
+            {
+                await tx.RollbackAsync();
+                throw;
+            }
+        }
+        finally
+        {
+            _db.Database.SetCommandTimeout(previousTimeout);
+        }
+    }
+
     public async Task<(bool Success, string Message)> DeleteAsync(string quotationNo, string operatorUserName)
     {
         var key = Safe(quotationNo, 20);

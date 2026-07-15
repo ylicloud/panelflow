@@ -90,7 +90,7 @@
                 <th>客户名称</th>
                 <th>当前状态</th>
                 <th>报价人</th>
-                <th class="text-center" style="width: 200px;">操作</th>
+                <th class="text-center" style="width: 240px;">操作</th>
             </tr>
             </thead>
             <tbody>
@@ -127,9 +127,18 @@
                         </td>
                         <td>@(string.IsNullOrWhiteSpace(item.Quoter) ? "—" : item.Quoter)</td>
                         <td class="text-center">
+                            <button type="button"
+                                    class="btn btn-sm btn-outline-secondary py-0 px-2 js-clone-quotation"
+                                    title="复制报价单"
+                                    data-source-fabh="@item.QuotationNo"
+                                    data-source-name="@(item.QuotationName ?? "")"
+                                    data-customer-no="@(item.CustomerNo ?? "")"
+                                    data-remark="@(item.Remark ?? "")">
+                                <i class="bi bi-files"></i>
+                            </button>
                             @if (canOperate)
                             {
-                                <a class="btn btn-sm btn-outline-primary py-0 px-2"
+                                <a class="btn btn-sm btn-outline-primary py-0 px-2 ms-1"
                                    href="@Url.Action("Edit", new { id = item.QuotationNo })"
                                    title="修改">
                                     <i class="bi bi-pencil"></i>
@@ -154,10 +163,6 @@
                                         <i class="bi bi-trash"></i>
                                     </button>
                                 </form>
-                            }
-                            else
-                            {
-                                <span class="text-muted">—</span>
                             }
                         </td>
                     </tr>
@@ -200,9 +205,17 @@
                     }
                 </div>
                 <div class="small text-muted">报价人：@(string.IsNullOrWhiteSpace(item.Quoter) ? "—" : item.Quoter)</div>
-                @if (canOperate)
-                {
-                    <div class="mt-2 d-grid gap-2">
+                <div class="mt-2 d-grid gap-2">
+                    <button type="button"
+                            class="btn btn-sm btn-outline-secondary js-clone-quotation"
+                            data-source-fabh="@item.QuotationNo"
+                            data-source-name="@(item.QuotationName ?? "")"
+                            data-customer-no="@(item.CustomerNo ?? "")"
+                            data-remark="@(item.Remark ?? "")">
+                        <i class="bi bi-files me-1"></i>复制报价单
+                    </button>
+                    @if (canOperate)
+                    {
                         <a class="btn btn-sm btn-outline-primary"
                            href="@Url.Action("Edit", new { id = item.QuotationNo })">修改</a>
                         <a class="btn btn-sm btn-outline-success"
@@ -220,8 +233,8 @@
                             <input type="hidden" name="id" value="@item.QuotationNo" />
                             <button type="submit" class="btn btn-sm btn-outline-danger w-100">删除</button>
                         </form>
-                    </div>
-                }
+                    }
+                </div>
             </div>
         }
     }
@@ -259,11 +272,101 @@
     </nav>
 }
 
+<div class="modal fade" id="clone-quotation-modal" tabindex="-1" aria-labelledby="clone-quotation-title" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form asp-action="Clone" method="post" id="clone-quotation-form">
+                @Html.AntiForgeryToken()
+                <div class="modal-header">
+                    <h5 class="modal-title" id="clone-quotation-title">复制报价单</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="small text-muted mb-3">
+                        将复制方案头信息与全部元件明细（BJB）到新编号。不含汇总表、合同与采购计划；原单不会被修改。
+                    </p>
+                    <input type="hidden" name="SourceFabh" id="clone-source-fabh" />
+                    <div class="mb-2">
+                        <label class="form-label small">源报价单</label>
+                        <input type="text" class="form-control form-control-sm" id="clone-source-display" readonly />
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small" for="clone-new-fabh">新报价单编号 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control form-control-sm" name="NewFabh" id="clone-new-fabh" maxlength="20" required />
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small" for="clone-new-name">新报价单名称</label>
+                        <input type="text" class="form-control form-control-sm" name="NewName" id="clone-new-name" maxlength="50" />
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small" for="clone-customer-no">客户编号</label>
+                        <input type="text" class="form-control form-control-sm" name="CustomerNo" id="clone-customer-no" maxlength="10" />
+                    </div>
+                    <div class="mb-0">
+                        <label class="form-label small" for="clone-remark">备注</label>
+                        <input type="text" class="form-control form-control-sm" name="Remark" id="clone-remark" maxlength="50" />
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-sm btn-primary" id="clone-submit-btn">确认复制</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 @section Scripts {
     <script>
         function confirmDelete(form) {
             const quotationNo = form.dataset.quotationNo || "";
             return confirm(`删除报价单 ${quotationNo} 后无法恢复，确认删除吗？`);
         }
+
+        (() => {
+            const modalEl = document.getElementById("clone-quotation-modal");
+            if (!modalEl || typeof bootstrap === "undefined") {
+                return;
+            }
+            const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+            const sourceFabhInput = document.getElementById("clone-source-fabh");
+            const sourceDisplay = document.getElementById("clone-source-display");
+            const newFabhInput = document.getElementById("clone-new-fabh");
+            const newNameInput = document.getElementById("clone-new-name");
+            const customerNoInput = document.getElementById("clone-customer-no");
+            const remarkInput = document.getElementById("clone-remark");
+            const form = document.getElementById("clone-quotation-form");
+            const submitBtn = document.getElementById("clone-submit-btn");
+
+            document.querySelectorAll(".js-clone-quotation").forEach((btn) => {
+                btn.addEventListener("click", () => {
+                    const sourceFabh = (btn.dataset.sourceFabh || "").trim();
+                    const sourceName = (btn.dataset.sourceName || "").trim();
+                    const customerNo = (btn.dataset.customerNo || "").trim();
+                    const remark = (btn.dataset.remark || "").trim();
+                    sourceFabhInput.value = sourceFabh;
+                    sourceDisplay.value = sourceName ? `${sourceFabh}（${sourceName}）` : sourceFabh;
+                    newFabhInput.value = "";
+                    newNameInput.value = sourceName ? `${sourceName}_副本` : `${sourceFabh}_副本`;
+                    customerNoInput.value = customerNo;
+                    remarkInput.value = remark;
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = "确认复制";
+                    }
+                    modal.show();
+                    setTimeout(() => newFabhInput.focus(), 200);
+                });
+            });
+
+            if (form) {
+                form.addEventListener("submit", () => {
+                    if (submitBtn) {
+                        submitBtn.disabled = true;
+                        submitBtn.textContent = "复制中…";
+                    }
+                });
+            }
+        })();
     </script>
 }

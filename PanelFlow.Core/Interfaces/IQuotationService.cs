@@ -13,4 +13,15 @@ public interface IQuotationService
     Task<(bool Allowed, string Message)> ValidateEditAccessAsync(string quotationNo, string operatorUserName);
     Task<(bool CanRename, string Message)> CanRenameFabhAsync(string originalFabh, string operatorUserName);
     Task<RenameFabhResult> RenameFabhAsync(string originalFabh, string newFabh, string operatorUserName);
+
+    /// <summary>
+    /// 浅拷贝报价单：复制 BJFAT 头 + 全部 BJB 明细到新编号（不含汇总/合同/采购）。
+    /// </summary>
+    Task<(bool Success, string Message, string? NewFabh)> CloneAsync(
+        string sourceFabh,
+        string newFabh,
+        string? newName,
+        string? customerNo,
+        string? remark,
+        string operatorUserName);
 }

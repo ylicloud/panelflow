@@ -33,6 +33,7 @@
   - `QuotationEditRules.CanOwnerOperate(bjr, dqzt, 当前登录用户名)` 为真
   - 等价于：`BJFAT.bjr` 与当前用户一致（忽略大小写、trim）且 `BJFAT.dqzt !== 10`（`EstablishedStatus`）
   - 实现：`PanelFlow.Core/Rules/QuotationEditRules.cs`；服务端校验见 `QuotationService.ValidateEditAccess`
+- “复制”按钮：列表每行均可点（含已成立）；弹出对话框填写新编号，浅拷贝 `BJFAT`+`BJB`，见 §3.1
 - “报价”按钮跳转 `QuotationController.Price()` → `GET /Quotation/Price?id={fabh}`，明细编辑能力按需迭代
 - 结构维护页 `SearchQuotations` 检索下拉：同样仅返回 `CanOwnerOperate` 为真的报价单（`WhereOwnerOperable` 扩展）；写操作另含管理员例外，见 `quotation-element-maintenance` 需求 8.2
 
@@ -71,6 +72,23 @@
    - `x_mc = 总计`
    - 其他字段默认值
 6. 提交事务，返回创建成功
+
+## 3.1 复制报价单（浅拷贝）
+
+入口：
+
+- 列表行「复制」按钮 → 弹窗 → `POST /Quotation/Clone`
+- 服务：`QuotationService.CloneAsync`
+
+规则：
+
+- 任意列表可见的报价单均可复制（含 `dqzt=10` 已成立）；原单不改动
+- 必填新 `fabh`；名称默认「原名称_副本」；客户/备注默认同源，可改
+- 新单 `bjr=当前用户`，`fasj=现在`
+- 新单 `dqzt`：源单有控制柜则为 `0`（草稿），否则 `1`；**从不**复制 `dqzt=10`
+- 仅复制 `BJFAT` + 全部 `BJB` 行（`INSERT…SELECT` 换 `fabh`）
+- **不复制**：汇总表、`XM_*`、合同、采购计划
+- 成功后跳转新单详情页；超时策略与改号类似（600 秒）
 
 ## 4. 修改逻辑
 
