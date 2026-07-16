@@ -148,6 +148,11 @@
                                    title="报价">
                                     <i class="bi bi-currency-dollar"></i>
                                 </a>
+                                <a class="btn btn-sm btn-outline-warning py-0 px-2 ms-1"
+                                   href="@Url.Action("Summary", new { id = item.QuotationNo })"
+                                   title="正式汇总">
+                                    <i class="bi bi-calculator"></i>
+                                </a>
                                 <a class="btn btn-sm btn-outline-info py-0 px-2 ms-1"
                                    href="@Url.Action("ImportComponents", new { id = item.QuotationNo })"
                                    title="导入excel元件">
@@ -221,6 +226,10 @@
                         <a class="btn btn-sm btn-outline-success"
                            href="@Url.Action("Price", new { id = item.QuotationNo })">
                             <i class="bi bi-currency-dollar me-1"></i>报价
+                        </a>
+                        <a class="btn btn-sm btn-outline-warning"
+                           href="@Url.Action("Summary", new { id = item.QuotationNo })">
+                            <i class="bi bi-calculator me-1"></i>正式汇总
                         </a>
                         <a class="btn btn-sm btn-outline-info"
                            href="@Url.Action("ImportComponents", new { id = item.QuotationNo })">

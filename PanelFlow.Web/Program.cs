@@ -24,7 +24,8 @@ if (string.IsNullOrWhiteSpace(connectionString))
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(
         connectionString,
-        sql => sql.CommandTimeout(30)));
+        sql => sql.CommandTimeout(30))
+        .AddInterceptors(new SqlServerLegacySessionInterceptor()));
 
 // ===== Data Protection 密钥持久化（解决部署后防伪令牌失效问题） =====
 var keysDir = Path.Combine(builder.Environment.ContentRootPath, "keys");
@@ -47,6 +48,7 @@ builder.Services.AddScoped<IQuotationStructureService, QuotationStructureService
 builder.Services.AddScoped<IPriceHistoryService, PriceHistoryService>();
 builder.Services.AddScoped<IPriceQueryService, PriceQueryService>();
 builder.Services.AddScoped<IPurchaseService, PurchaseService>();
+builder.Services.AddScoped<IQuotationSummaryService, QuotationSummaryService>();
 builder.Services.AddSingleton<IPermissionService, PermissionService>();
 
 // ===== Session =====

@@ -43,11 +43,11 @@ public class PurchasePlanController : Controller
     }
 
     [HttpGet]
-    public IActionResult Create()
+    public IActionResult Create(string? fabh)
     {
         ViewData["Title"] = "新建采购计划";
         ViewData["BreadcrumbTitle"] = "新建采购计划";
-        return View(new PurchasePlanCreateViewModel());
+        return View(new PurchasePlanCreateViewModel { Fabh = fabh?.Trim() ?? string.Empty });
     }
 
     [HttpPost]

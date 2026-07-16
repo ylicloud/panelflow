@@ -27,6 +27,7 @@ public class QuotationController : Controller
     private readonly IAuditLogService _auditLogService;
     private readonly IElementDictService _elementDictService;
     private readonly IQuotationStructureService _structureService;
+    private readonly IQuotationSummaryService _summaryService;
 
     public QuotationController(
         IQuotationService quotationService,
@@ -34,7 +35,8 @@ public class QuotationController : Controller
         ILogger<QuotationController> logger,
         IAuditLogService auditLogService,
         IElementDictService elementDictService,
-        IQuotationStructureService structureService)
+        IQuotationStructureService structureService,
+        IQuotationSummaryService summaryService)
     {
         _quotationService = quotationService;
         _db = db;
@@ -42,6 +44,7 @@ public class QuotationController : Controller
         _auditLogService = auditLogService;
         _elementDictService = elementDictService;
         _structureService = structureService;
+        _summaryService = summaryService;
     }
 
     [HttpGet]
@@ -192,6 +195,137 @@ public class QuotationController : Controller
         ViewData["Title"] = "报价单结构维护";
         ViewData["BreadcrumbTitle"] = "报价单结构维护";
         return View();
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> Summary(string id)
+    {
+        var loginUser = HttpContext.Session.GetLoginUser();
+        var loginUserName = (loginUser?.UserName ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(loginUserName))
+            return RedirectToAction("Login", "Account");
+
+        var page = await _summaryService.GetPageAsync(id ?? string.Empty, loginUserName);
+        if (page is null)
+            return NotFound();
+
+        ViewData["Title"] = "报价单汇总";
+        ViewData["BreadcrumbTitle"] = "报价单汇总";
+        return View(page);
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> PrecheckSummary(string id)
+    {
+        var result = await _summaryService.PrecheckAsync(id ?? string.Empty);
+        return Json(new { success = true, data = result });
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task Summarize(string id, bool ignoreEmptyComponentWarning = false)
+    {
+        var loginUser = HttpContext.Session.GetLoginUser();
+        var loginUserName = (loginUser?.UserName ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(loginUserName))
+        {
+            Response.ContentType = "application/x-ndjson; charset=utf-8";
+            await WriteSummaryStreamLineAsync(new { type = "result", success = false, message = "登录已失效，请重新登录后再试" });
+            return;
+        }
+
+        var page = await _summaryService.GetPageAsync(id ?? string.Empty, loginUserName);
+        if (page is null)
+        {
+            Response.ContentType = "application/x-ndjson; charset=utf-8";
+            await WriteSummaryStreamLineAsync(new { type = "result", success = false, message = "报价单不存在" });
+            return;
+        }
+
+        if (!page.CanEdit)
+        {
+            Response.ContentType = "application/x-ndjson; charset=utf-8";
+            await WriteSummaryStreamLineAsync(new { type = "result", success = false, message = "当前报价单不可执行汇总操作" });
+            return;
+        }
+
+        Response.ContentType = "application/x-ndjson; charset=utf-8";
+        Response.Headers.CacheControl = "no-cache";
+
+        async Task Report(string message) =>
+            await WriteSummaryStreamLineAsync(new { type = "progress", message });
+
+        var result = await _summaryService.RunSummaryAsync(
+            id ?? string.Empty,
+            ignoreEmptyComponentWarning,
+            Report,
+            HttpContext.RequestAborted);
+
+        await WriteSummaryStreamLineAsync(new
+        {
+            type = "result",
+            success = result.Success,
+            message = result.Message,
+            stage = result.Stage,
+            needsConfirm = !result.Success && result.Stage == "Precheck"
+        });
+    }
+
+    private async Task WriteSummaryStreamLineAsync(object payload)
+    {
+        var json = System.Text.Json.JsonSerializer.Serialize(payload);
+        await Response.WriteAsync(json + "\n");
+        await Response.Body.FlushAsync();
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> GetSummaryStatus(string id)
+    {
+        var status = await _summaryService.GetStatusAsync(id ?? string.Empty);
+        return Json(new { success = true, data = status });
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> GetSummaryHzb(string id)
+    {
+        var rows = await _db.BjbHzbItems.AsNoTracking()
+            .Where(x => x.FABH == (id ?? string.Empty).Trim())
+            .OrderBy(x => x.x_bm)
+            .ToListAsync();
+        return Json(new { success = true, data = rows });
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> GetSummaryXmyjb(string id)
+    {
+        var fabh = (id ?? string.Empty).Trim();
+        var rows = await _db.BjbXmyjbItems.AsNoTracking()
+            .Where(x => x.fabh == fabh)
+            .OrderBy(x => x.x_sxh)
+            .ToListAsync();
+        return Json(new { success = true, data = rows });
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> GetSummaryXmyjhz(string id)
+    {
+        var fabh = (id ?? string.Empty).Trim();
+        var rows = await _db.BjbXmyjhzItems.AsNoTracking()
+            .Where(x => x.fabh == fabh)
+            .OrderBy(x => x.x_flbh).ThenBy(x => x.x_ggxh)
+            .ToListAsync();
+        return Json(new { success = true, data = rows });
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> GetSummaryXmhz(string id)
+    {
+        var fabh = (id ?? string.Empty).Trim();
+        var rows = await _db.BjbXmhzItems.AsNoTracking()
+            .Where(x => x.fabh == fabh)
+            .OrderBy(x => x.x_hzjb)
+            .ToListAsync();
+        return Json(new { success = true, data = rows });
     }
 
     [HttpGet]

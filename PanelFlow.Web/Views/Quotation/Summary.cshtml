@@ -1,0 +1,104 @@
+@model PanelFlow.Core.Models.QuotationSummaryPageDto
+@{
+    ViewData["Title"] = "报价单汇总";
+    var fabh = Model.Fabh;
+}
+
+<link rel="stylesheet" href="~/lib/handsontable/handsontable.full.min.css" />
+<link rel="stylesheet" href="~/css/quotation-summary.css" asp-append-version="true" />
+
+<div class="oa-card mb-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <div>
+            <div class="fw-semibold">报价单汇总中心</div>
+            <div class="small text-muted">
+                编号：<span id="summary-fabh">@fabh</span>
+                @if (!string.IsNullOrWhiteSpace(Model.QuotationName))
+                {
+                    <span class="ms-2">名称：@Model.QuotationName</span>
+                }
+            </div>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            @if (Model.CanEdit)
+            {
+                <button type="button" class="btn btn-sm btn-primary" id="run-summary-btn">
+                    <i class="bi bi-calculator me-1"></i>执行汇总
+                </button>
+            }
+            <a class="btn btn-sm btn-outline-secondary" href="@Url.Action("FillPrice", new { id = fabh })">填价</a>
+            <a class="btn btn-sm btn-outline-secondary" href="@Url.Action("Create", "PurchasePlan", new { fabh })">创建采购计划</a>
+            <a class="btn btn-sm btn-outline-secondary" href="@Url.Action("Index")">返回列表</a>
+        </div>
+    </div>
+    <div id="summary-progress-panel" class="summary-progress-panel d-none mt-2">
+        <div class="d-flex align-items-center gap-2 mb-1">
+            <div class="spinner-border spinner-border-sm text-primary" role="status" aria-hidden="true"></div>
+            <span class="small fw-semibold text-primary" id="summary-progress-current">正在执行汇总…</span>
+        </div>
+        <ul id="summary-progress-steps" class="summary-progress-steps small mb-0"></ul>
+    </div>
+    <div id="summary-status" class="small text-muted mt-2">
+        汇总状态：
+        HZB <span id="stat-hzb">@Model.Status.HzbCount</span> 行，
+        按柜 <span id="stat-xmyjb">@Model.Status.XmyjbCount</span> 行，
+        分类元件 <span id="stat-xmyjhz">@Model.Status.XmyjhzCount</span> 行，
+        分类汇总 <span id="stat-xmhz">@Model.Status.XmhzCount</span> 行
+    </div>
+    <div class="alert alert-light border small mt-2 mb-0">
+        此处为 PB 正式汇总结果（写入数据库表）。填价页的「项目元件汇总视图」仅为实时辅助查看，与此处不同。
+        <span class="text-muted">打印/分柜/分类报表入口预留，后续版本提供。</span>
+    </div>
+</div>
+
+<ul class="nav nav-tabs mb-2" id="summary-tabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-hzb" type="button">报价分类汇总 (BJB_HZB)</button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-xmyjb" type="button">按柜元件 (BJB_XMYJB)</button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-xmyjhz" type="button">分类元件 (BJB_XMYJHZ)</button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-xmhz" type="button">分类汇总 (BJB_XMHZ)</button>
+    </li>
+</ul>
+
+<div class="tab-content">
+    <div class="tab-pane fade show active" id="tab-hzb">
+        <div class="oa-card p-0"><div id="grid-hzb" class="summary-grid"></div></div>
+    </div>
+    <div class="tab-pane fade" id="tab-xmyjb">
+        <div class="oa-card p-0"><div id="grid-xmyjb" class="summary-grid"></div></div>
+    </div>
+    <div class="tab-pane fade" id="tab-xmyjhz">
+        <div class="oa-card p-0"><div id="grid-xmyjhz" class="summary-grid"></div></div>
+    </div>
+    <div class="tab-pane fade" id="tab-xmhz">
+        <div class="oa-card p-0"><div id="grid-xmhz" class="summary-grid"></div></div>
+    </div>
+</div>
+
+<form id="summary-antiforgery" class="d-none">@Html.AntiForgeryToken()</form>
+
+@section Scripts {
+    <script src="~/lib/handsontable/handsontable.full.min.js"></script>
+    <script>
+        window.quotationSummaryConfig = {
+            fabh: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(fabh)),
+            canEdit: @Model.CanEdit.ToString().ToLowerInvariant(),
+            urls: {
+                summarize: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Url.Action("Summarize", new { id = fabh }) ?? "")),
+                precheck: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Url.Action("PrecheckSummary", new { id = fabh }) ?? "")),
+                status: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Url.Action("GetSummaryStatus", new { id = fabh }) ?? "")),
+                hzb: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Url.Action("GetSummaryHzb", new { id = fabh }) ?? "")),
+                xmyjb: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Url.Action("GetSummaryXmyjb", new { id = fabh }) ?? "")),
+                xmyjhz: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Url.Action("GetSummaryXmyjhz", new { id = fabh }) ?? "")),
+                xmhz: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Url.Action("GetSummaryXmhz", new { id = fabh }) ?? ""))
+            }
+        };
+    </script>
+    <script src="~/js/quotation-summary.js" asp-append-version="true"></script>
+}

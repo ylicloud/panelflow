@@ -23,6 +23,12 @@ public class ApplicationDbContext : DbContext
     public DbSet<PurchasePlan> PurchasePlans { get; set; }
     public DbSet<PurchasePlanItem> PurchasePlanItems { get; set; }
     public DbSet<BjbXmyjhzItem> BjbXmyjhzItems { get; set; }
+    public DbSet<BjbHzbItem> BjbHzbItems { get; set; }
+    public DbSet<BjbXmyjbItem> BjbXmyjbItems { get; set; }
+    public DbSet<BjbXmhzItem> BjbXmhzItems { get; set; }
+    public DbSet<BjhzbCategoryItem> BjhzbCategoryItems { get; set; }
+    public DbSet<BjdBzbItem> BjdBzbItems { get; set; }
+    public DbSet<BjdWybItem> BjdWybItems { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -283,6 +289,118 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.x_je).HasColumnName("x_je").HasColumnType("decimal(18,2)");
             entity.Property(e => e.x_bcg_sl).HasColumnName("x_bcg_sl").HasColumnType("decimal(18,2)");
             entity.Property(e => e.x_hzjb).HasColumnName("x_hzjb").HasColumnType("char(100)");
+        });
+
+        modelBuilder.Entity<BjbHzbItem>(entity =>
+        {
+            entity.ToTable("BJB_HZB");
+            entity.HasKey(e => new { e.FABH, e.x_bm });
+            entity.Property(e => e.FABH).HasColumnName("FABH").HasColumnType("char(20)");
+            entity.Property(e => e.x_bm).HasColumnName("x_bm").HasColumnType("char(100)");
+            entity.Property(e => e.x_mc).HasColumnName("x_mc").HasColumnType("char(100)");
+            entity.Property(e => e.x_sm).HasColumnName("x_sm").HasColumnType("char(100)");
+            entity.Property(e => e.x_lx).HasColumnName("x_lx");
+            entity.Property(e => e.x_sl).HasColumnName("x_sl").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_zj1).HasColumnName("x_zj1").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_zj1_bj).HasColumnName("x_zj1_bj").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_zj1_jj).HasColumnName("x_zj1_jj").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_zj1_scj).HasColumnName("x_zj1_scj").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_zj1_zdj).HasColumnName("x_zj1_zdj").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_zj2).HasColumnName("x_zj2").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_zj2_zdj).HasColumnName("x_zj2_zdj").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_zj3).HasColumnName("x_zj3").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_zj3_zdj).HasColumnName("x_zj3_zdj").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_zj4).HasColumnName("x_zj4").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_zj4_zdj).HasColumnName("x_zj4_zdj").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_zj5).HasColumnName("x_zj5").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_zj5_zdj).HasColumnName("x_zj5_zdj").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_zj6).HasColumnName("x_zj6").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_zj6_zdj).HasColumnName("x_zj6_zdj").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_zj7).HasColumnName("x_zj7").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_zj7_zdj).HasColumnName("x_zj7_zdj").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_zj8).HasColumnName("x_zj8").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_zj8_zdj).HasColumnName("x_zj8_zdj").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_zj9).HasColumnName("x_zj9").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_zj9_zdj).HasColumnName("x_zj9_zdj").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_zj10).HasColumnName("x_zj10").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_zj10_zdj).HasColumnName("x_zj10_zdj").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_wzfy).HasColumnName("x_wzfy").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_cgf).HasColumnName("x_cgf");
+            entity.Property(e => e.x_flbh).HasColumnName("x_flbh").HasColumnType("char(50)");
+            entity.Property(e => e.x_ggxh).HasColumnName("x_ggxh").HasColumnType("char(50)");
+            entity.Property(e => e.x_sccj).HasColumnName("x_sccj").HasColumnType("char(50)");
+            entity.Property(e => e.x_key_ry).HasColumnName("x_key_ry").HasColumnType("char(50)");
+        });
+
+        modelBuilder.Entity<BjbXmyjbItem>(entity =>
+        {
+            entity.ToTable("BJB_XMYJB");
+            entity.HasKey(e => new { e.fabh, e.x_dyh, e.x_ggxh, e.x_sccj, e.x_key_ry, e.x_lylx });
+            entity.Property(e => e.fabh).HasColumnName("fabh").HasColumnType("char(20)");
+            entity.Property(e => e.x_dyh).HasColumnName("x_dyh").HasColumnType("char(20)");
+            entity.Property(e => e.x_ggxh).HasColumnName("x_ggxh").HasColumnType("char(50)");
+            entity.Property(e => e.x_sccj).HasColumnName("x_sccj").HasColumnType("char(50)");
+            entity.Property(e => e.x_key_ry).HasColumnName("x_key_ry").HasColumnType("char(50)");
+            entity.Property(e => e.x_lylx).HasColumnName("x_lylx");
+            entity.Property(e => e.x_flbh).HasColumnName("x_flbh").HasColumnType("char(50)");
+            entity.Property(e => e.x_qjmc).HasColumnName("x_qjmc").HasColumnType("char(100)");
+            entity.Property(e => e.x_dymc).HasColumnName("x_dymc").HasColumnType("char(100)");
+            entity.Property(e => e.x_lx).HasColumnName("x_lx");
+            entity.Property(e => e.x_zsl).HasColumnName("x_zsl").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_zje).HasColumnName("x_zje").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_bcg_sl).HasColumnName("x_bcg_sl").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_sxh).HasColumnName("x_sxh").HasColumnType("decimal(18,0)");
+            entity.Property(e => e.x_zxm_sl).HasColumnName("x_zxm_sl").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_zxm_je).HasColumnName("x_zxm_je").HasColumnType("decimal(18,0)");
+            entity.Property(e => e.x_zxm_bcg_sl).HasColumnName("x_zxm_bcg_sl").HasColumnType("decimal(18,2)");
+        });
+
+        modelBuilder.Entity<BjbXmhzItem>(entity =>
+        {
+            entity.ToTable("BJB_XMHZ");
+            entity.HasNoKey();
+            entity.Property(e => e.fabh).HasColumnName("fabh").HasColumnType("char(20)");
+            entity.Property(e => e.x_flbh).HasColumnName("x_flbh").HasColumnType("char(50)");
+            entity.Property(e => e.x_ggxh).HasColumnName("x_ggxh").HasColumnType("char(50)");
+            entity.Property(e => e.x_sccj).HasColumnName("x_sccj").HasColumnType("char(50)");
+            entity.Property(e => e.x_key_ry).HasColumnName("x_key_ry").HasColumnType("char(50)");
+            entity.Property(e => e.x_mc).HasColumnName("x_mc").HasColumnType("char(100)");
+            entity.Property(e => e.x_sl).HasColumnName("x_sl").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_je).HasColumnName("x_je").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_bcg_sl).HasColumnName("x_bcg_sl").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.x_hzjb).HasColumnName("x_hzjb").HasColumnType("char(100)");
+        });
+
+        modelBuilder.Entity<BjhzbCategoryItem>(entity =>
+        {
+            entity.ToTable("BJHZB");
+            entity.HasKey(e => new { e.fabh, e.x_bh });
+            entity.Property(e => e.fabh).HasColumnName("fabh").HasColumnType("numeric(12,0)");
+            entity.Property(e => e.x_bh).HasColumnName("x_bh").HasColumnType("char(100)");
+            entity.Property(e => e.famc).HasColumnName("famc").HasColumnType("nchar(100)");
+            entity.Property(e => e.x_mc).HasColumnName("x_mc").HasColumnType("char(100)");
+            entity.Property(e => e.bz).HasColumnName("bz").HasColumnType("varchar(50)");
+            entity.Property(e => e.x_flbh).HasColumnName("x_flbh").HasColumnType("char(100)");
+            entity.Property(e => e.x_fl_bhf).HasColumnName("x_fl_bhf");
+        });
+
+        modelBuilder.Entity<BjdBzbItem>(entity =>
+        {
+            entity.ToTable("BJD_BZB");
+            entity.HasKey(e => e.XH);
+            entity.Property(e => e.XH).HasColumnName("XH");
+            entity.Property(e => e.ZD).HasColumnName("ZD").HasColumnType("decimal(18,4)");
+            entity.Property(e => e.ZG).HasColumnName("ZG").HasColumnType("decimal(18,4)");
+            entity.Property(e => e.JG).HasColumnName("JG").HasColumnType("decimal(18,2)");
+        });
+
+        modelBuilder.Entity<BjdWybItem>(entity =>
+        {
+            entity.ToTable("BJD_WYB");
+            entity.HasKey(e => e.XH);
+            entity.Property(e => e.XH).HasColumnName("XH");
+            entity.Property(e => e.MC).HasColumnName("MC").HasColumnType("char(50)");
+            entity.Property(e => e.DJ).HasColumnName("DJ").HasColumnType("decimal(18,2)");
         });
     }
 }

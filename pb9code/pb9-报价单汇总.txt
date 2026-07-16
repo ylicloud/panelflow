@@ -397,3 +397,645 @@ end if
  loadfamx(num)
  dw_1.retrieve(curbjdbh,curbjxbh ,int(len(curbjxbh )/4) +1 )//参数:方案号，项编码，项级别
  commit using sqlca;
+
+ ------ function hz1() -----------
+ long i,j,k ,curjb , xb1,xb2
+string flbm,s1,s2
+hzb_hz hztemp[]
+hzbcnt = hzb.retrieve(curbjdbh)
+if hzbcnt <= 2 then  return true; //本报价单没有项需要汇总
+//1:初始化汇总表,生成汇总表的框架
+hzb.object.x_sl[1] = 1;    hzb.object.x_fdds[1] = 0;
+for i = 2 to hzbcnt - 1
+	s2 = trim(hzb.object.x_bm[i]) ;  	s1 = trim(hzb.object.x_bm[i - 1])
+	if len(s2) <= len(s1) then continue;
+	hzb.object.x_lx[i - 1] = 1  ; 
+	hzb.object.x_dj[i - 1] = 0 //销售标价
+	hzb.object.x_bj_dj[i - 1] = 0 //该用户进价
+	hzb.object.x_bjb_dj[i - 1] = 0//最低单价
+	hzb.object.x_bjb_bj[i - 1] = 0//市价
+	hzb.object.x_fdds[i - 1] = 0;hzb.object.x_bj_fdds[i - 1] = 0;	hzb.object.x_bjb_fdds[i - 1] = 0;hzb.object.x_wzfy[i - 1] = 0 //其它费用
+next
+//******************************************进行汇总*************************************//
+//2:汇总 
+k=1 ;     flbm=trim(hzb.object.x_bm[1])
+hztemp[k].x_jb = 1 ; hztemp[k].x_xb = 1;   hztemp[k].x_bm = flbm  //记住当前记录级别 ; 序号 ;编码
+//逐个处理各条记录
+FOR i= 2 TO hzbcnt - 1
+	flbm=trim(hzb.object.x_bm[i]) 
+	curjb = long(len(flbm) / 4 +1)
+	do while ( curjb <= hztemp[k].x_jb) 
+		xb1= hztemp[k].x_xb;  xb2= hztemp[k - 1].x_xb
+		if (js1_1(xb1,xb2) = false ) then   return false;
+		k = k - 1
+	loop
+	k = k + 1
+   hztemp[k].x_jb = curjb  ;	hztemp[k].x_xb = i ;	hztemp[k].x_bm = flbm  //压入堆栈
+	if i = hzbcnt - 1 then
+		curjb = 1
+      do while ( curjb < hztemp[k].x_jb) 
+			xb1= hztemp[k].x_xb;  xb2= hztemp[k - 1].x_xb
+			if (js1_1(xb1,xb2) = false) then return false;
+	 		k = k - 1
+	   loop
+	end if
+NEXT
+//3赋值总计记录行			
+hzb.object.x_dj[hzbcnt]     = hzb.object.x_dj[1] 
+hzb.object.x_bj_dj[hzbcnt]  = hzb.object.x_bj_dj[1] //该用户进价
+hzb.object.x_bjb_dj[hzbcnt] = hzb.object.x_bjb_dj[1]  //最低单价
+hzb.object.x_bjb_bj[hzbcnt] = hzb.object.x_bjb_bj[1] //市价
+hzb.object.x_wzfy[hzbcnt]   = hzb.object.x_wzfy[1] //其它费用 
+hzb.object.x_sl[hzbcnt]     = 1 ; hzb.object.x_fdds[hzbcnt] = 0;
+hzb.update()
+if sqlca.sqlcode <> 0 then  
+	rollback using sqlca; return false;
+end if
+commit using sqlca;return  true 
+ ---------------------------------
+
+ ------ function hz2() -----------
+ //******************************************进行汇总*************************************//
+long i,k ,curjb ,xb1,xb2 ,flhzcnt
+string flbm
+hzb_hz hztemp[]
+flhzcnt = flhzhzb.rowcount()
+if flhzcnt <= 0 then 	return false;
+k=1;   flbm=trim(flhzhzb.object.x_bm[1])
+hztemp[k].x_jb = 1 ; hztemp[k].x_xb = 1;   hztemp[k].x_bm = flbm  //记住当前记录级别 ; 序号 ;编码
+//逐个处理各条记录
+FOR i= 2 TO flhzcnt - 1
+	flbm=trim(flhzhzb.object.x_bm[i]) ;	curjb = long(len(flbm) / 4 +1)
+	st_3.text = "正在进行报价单统计，汇总3：" + flbm;
+	if (curjb <= hztemp[k].x_jb) then
+			do while ( curjb <= hztemp[k].x_jb) 
+			   xb1= hztemp[k].x_xb;  xb2= hztemp[k - 1].x_xb
+				//xb1结算到xb2
+				if js2_1(xb1,xb2) = false then	return false;
+				k = k - 1
+			loop
+	end if
+	k = k + 1; hztemp[k].x_jb = long(len(flbm) / 4 +1) ;  hztemp[k].x_xb = i ;hztemp[k].x_bm = flbm  //压入堆栈
+   if i = (flhzcnt - 1) then
+        curjb = 1
+        do while ( curjb < hztemp[k].x_jb) 
+			   xb1= hztemp[k].x_xb;   xb2= hztemp[k - 1].x_xb
+				//xb1结算到xb2
+				if js2_1(xb1,xb2) = false then  return false;
+				k = k - 1;st_3.text = "正在进行报价单统计，汇总3：" + string(xb1)+"|"+ string(xb2);
+			loop
+  end if
+NEXT
+////////////////
+//4赋值总计记录行			
+flhzhzb.object.x_zj1[flhzcnt]     = flhzhzb.object.x_zj1[1]     
+flhzhzb.object.x_zj1_bj[flhzcnt]  = flhzhzb.object.x_zj1_bj[1] 
+flhzhzb.object.x_zj1_jj[flhzcnt]  = flhzhzb.object.x_zj1_jj[1]
+flhzhzb.object.x_zj1_scj[flhzcnt] = flhzhzb.object.x_zj1_scj[1] 
+flhzhzb.object.x_zj1_zdj[flhzcnt] = flhzhzb.object.x_zj1_zdj[1] 
+
+flhzhzb.object.x_zj2[flhzcnt] = flhzhzb.object.x_zj2[1] 
+flhzhzb.object.x_zj3[flhzcnt] = flhzhzb.object.x_zj3[1] 
+flhzhzb.object.x_zj4[flhzcnt] = flhzhzb.object.x_zj4[1] 
+flhzhzb.object.x_zj5[flhzcnt] = flhzhzb.object.x_zj5[1] 
+flhzhzb.object.x_zj6[flhzcnt] = flhzhzb.object.x_zj6[1] 
+flhzhzb.object.x_zj7[flhzcnt] = flhzhzb.object.x_zj7[1] 
+flhzhzb.object.x_zj8[flhzcnt] = flhzhzb.object.x_zj8[1] 
+flhzhzb.object.x_zj9[flhzcnt] = flhzhzb.object.x_zj9[1]
+flhzhzb.object.x_zj10[flhzcnt] = flhzhzb.object.x_zj10[1] 
+
+flhzhzb.object.x_zj2_zdj[flhzcnt] = flhzhzb.object.x_zj2_zdj[1]
+flhzhzb.object.x_zj3_zdj[flhzcnt] = flhzhzb.object.x_zj3_zdj[1] 
+flhzhzb.object.x_zj4_zdj[flhzcnt] = flhzhzb.object.x_zj4_zdj[1] 
+flhzhzb.object.x_zj5_zdj[flhzcnt] = flhzhzb.object.x_zj5_zdj[1] 
+flhzhzb.object.x_zj6_zdj[flhzcnt] = flhzhzb.object.x_zj6_zdj[1] 
+flhzhzb.object.x_zj7_zdj[flhzcnt] = flhzhzb.object.x_zj7_zdj[1] 
+flhzhzb.object.x_zj8_zdj[flhzcnt] = flhzhzb.object.x_zj8_zdj[1] 
+flhzhzb.object.x_zj9_zdj[flhzcnt] = flhzhzb.object.x_zj9_zdj[1] 
+flhzhzb.object.x_zj10_zdj[flhzcnt] = flhzhzb.object.x_zj10_zdj[1] 
+flhzhzb.object.x_sl[flhzcnt]     = 1 
+ return  true
+ ---------------------------------
+
+ ------ function flhzkj_sc() -----------
+ long flhzcnt , i ,qjhzcnt ,currow ,curlx
+flhzcnt = flhzhzb.retrieve(curbjdbh)
+qjhzcnt = hzb.rowcount()
+if flhzcnt > 0  or qjhzcnt <= 0 then 	return false
+for i = 1 to  qjhzcnt - 1
+	currow = flhzhzb.insertrow(0)
+	curlx = hzb.object.x_lx[i]
+	flhzhzb.object.fabh[currow] = hzb.object.fabh[i]
+	flhzhzb.object.x_bm[currow] = hzb.object.x_bm[i];	flhzhzb.object.x_mc[currow] = hzb.object.x_mc[i]
+	flhzhzb.object.x_flbh[currow] = hzb.object.x_flbh[i];	flhzhzb.object.x_ggxh[currow] = hzb.object.x_ggxh[i]
+	flhzhzb.object.x_sccj[currow] = hzb.object.x_sccj[i];	flhzhzb.object.x_key_ry[currow] = hzb.object.x_key_ry[i]
+	flhzhzb.object.x_sm[currow] = left(hzb.object.x_bm[i],4)
+	
+	flhzhzb.object.x_cgf[currow] = hzb.object.x_cgf[i];	flhzhzb.object.x_lx[currow] = curlx
+	flhzhzb.object.x_sl[currow] = hzb.object.x_sl[i];	flhzhzb.object.x_wzfy[currow] = hzb.object.x_wzfy[i]
+	
+	flhzhzb.object.x_zj1[currow]     = 0  //材料总价
+   flhzhzb.object.x_zj1_bj[currow]  = 0  //材料报价
+   flhzhzb.object.x_zj1_jj[currow]  = 0  //材料进价
+   flhzhzb.object.x_zj1_scj[currow] = 0  //材料市场价
+   flhzhzb.object.x_zj1_zdj[currow] = 0  //材料最低价
+
+   flhzhzb.object.x_zj2[currow] = 0 ; flhzhzb.object.x_zj2_zdj[currow] =0   // 辅料价格
+   flhzhzb.object.x_zj3[currow] = 0 ; flhzhzb.object.x_zj3_zdj[currow] = 0  // 客体价格
+   flhzhzb.object.x_zj4[currow] = 0 ; flhzhzb.object.x_zj4_zdj[currow] = 0  // 安装价格
+   flhzhzb.object.x_zj5[currow] = 0 ; flhzhzb.object.x_zj5_zdj[currow] = 0  // 包装价格
+   flhzhzb.object.x_zj6[currow] = 0 ; flhzhzb.object.x_zj6_zdj[currow] = 0  // 网印价格
+   flhzhzb.object.x_zj7[currow] = 0 ; flhzhzb.object.x_zj7_zdj[currow] = 0  //
+   flhzhzb.object.x_zj8[currow] = 0 ; flhzhzb.object.x_zj8_zdj[currow] = 0  //
+   flhzhzb.object.x_zj9[currow] = 0 ; flhzhzb.object.x_zj9_zdj[currow] = 0  //
+   flhzhzb.object.x_zj10[currow] = 0; flhzhzb.object.x_zj10_zdj[currow] =0  //直接输入
+	choose case curlx
+		case 0   // 直接输入
+			 flhzhzb.object.x_zj10_zdj[currow] = hzb.object.x_bj_dj[i]
+			 flhzhzb.object.x_zj10[currow]     = hzb.object.x_dj[i]
+		case 11  // 器件
+		    flhzhzb.object.x_zj1[currow]     = hzb.object.x_dj[i]
+			 flhzhzb.object.x_zj1_bj[currow]  = hzb.object.x_dj[i]
+			 flhzhzb.object.x_zj1_jj[currow]  = hzb.object.x_bj_dj[i]
+			 flhzhzb.object.x_zj1_scj[currow] = hzb.object.x_bjb_bj[i]
+			 flhzhzb.object.x_zj1_zdj[currow] = hzb.object.x_bjb_dj[i]
+	   case 12 //辅料 ：由参数得到
+			 flhzhzb.object.x_zj2_zdj[currow] = hzb.object.x_bj_dj[i]
+			 flhzhzb.object.x_zj2[currow] = hzb.object.x_dj[i]
+		case 13 //壳体 ：直接输入
+			 flhzhzb.object.x_zj3_zdj[currow] = hzb.object.x_bj_dj[i]
+			 flhzhzb.object.x_zj3[currow] = hzb.object.x_dj[i]
+		case 14  //安装 ：直接输入
+			 flhzhzb.object.x_zj4_zdj[currow] = hzb.object.x_bj_dj[i]
+			 flhzhzb.object.x_zj4[currow] = hzb.object.x_dj[i]
+		case 15 //包装：由参数得到
+			 flhzhzb.object.x_zj5_zdj[currow] = hzb.object.x_bj_dj[i]
+			 flhzhzb.object.x_zj5[currow] = hzb.object.x_dj[i]
+		case 16 //网印：由参数得到
+			 flhzhzb.object.x_zj6_zdj[currow] = hzb.object.x_bj_dj[i]
+			 flhzhzb.object.x_zj6[currow] = hzb.object.x_dj[i]
+		case 17  //辅料 ：直接输入
+			 flhzhzb.object.x_zj2_zdj[currow] = hzb.object.x_bj_dj[i]
+			 flhzhzb.object.x_zj2[currow] = hzb.object.x_dj[i]
+		case 18  //包装 ：直接输入
+			 flhzhzb.object.x_zj5_zdj[currow] = hzb.object.x_bj_dj[i]
+			 flhzhzb.object.x_zj5[currow] = hzb.object.x_dj[i]
+		case 19  //网印 ：直接输入
+			 flhzhzb.object.x_zj6_zdj[currow] = hzb.object.x_bj_dj[i]
+			 flhzhzb.object.x_zj6[currow] = hzb.object.x_dj[i]
+	end choose
+	
+next
+   currow = flhzhzb.insertrow(0)
+	flhzhzb.object.fabh[currow] = hzb.object.fabh[qjhzcnt]
+	flhzhzb.object.x_bm[currow] = hzb.object.x_bm[qjhzcnt]
+	flhzhzb.object.x_mc[currow] = hzb.object.x_mc[qjhzcnt]
+	flhzhzb.object.x_sm[currow] = hzb.object.x_ggxh[qjhzcnt]
+	flhzhzb.object.x_lx[currow] = 1;	flhzhzb.object.x_sl[currow] = 1
+	flhzhzb.object.x_wzfy[currow] = hzb.object.x_wzfy[qjhzcnt]
+return true
+ ---------------------------------
+ -------function js1_1() -----------
+ //xb1结算到xb2，XB2 为XB1的父结点
+string  str1,str2,str3 ,sk
+double  dl1,dl2,dl3,tj
+long    m,n ,curlx, xb1,xb2 ,curjslx
+dec{2}     zjjg1 , zjjg2 , zjjg3  ,zjjg4
+xb1 = h1;xb2 = h2
+//取出当前汇总项《子项》类型x_ggxh项，及该项的前两个字符：
+curlx = hzb.object.x_lx[xb1] ; sk = trim(hzb.object.x_ggxh[xb1]);sk = left(sk,2)
+curjslx = 0
+if sk = "0:" then  curjslx = 0 ;//该项为直接输入所得
+if sk = "1:" then  curjslx = 1 ;//该项为系数比例计算所得
+if sk = "2:" then	 curjslx = 2 ;//该项为用户报价表定义计算得到
+//结算目标库:hzb
+choose case curlx
+ 		 case  0  //该项价格为用户输入《未知归类项》       
+			  choose case curjslx
+				  case 1     //系数比例计算价格
+					 if  js1_2(xb1,xb2) = false  then return false;  
+				  case else  //输入价格
+					 if  js1_3(xb1,xb2) = false  then return false;  
+				  end choose
+		 case	1  //集合结算
+			  if  js1_4(xb1,xb2) = false  then return false;  
+		 case  11  //器件
+			  if  hzb.object.x_bjb_fdds[xb1] < hzb.object.x_bj_fdds[xb1]  then
+				  //如果操作员点数为最新 ,更新最低成本价
+				  hzb.object.x_bjb_fdds[xb1] = hzb.object.x_bj_fdds[xb1];hzb.object.x_bjb_dj[xb1]   = hzb.object.x_bj_dj[xb1]  
+				  zjjg1 = hzb.object.x_bjb_dj[xb1] /(1 - hzb.object.x_bjb_fdds[xb1]/100 );hzb.object.x_bjb_bj[xb1] = zjjg1
+			  end if
+			  zjjg1 = hzb.object.x_bj_dj[xb1] *( 1 + hzb.object.x_fdds[xb1]/100); hzb.object.x_dj[xb1] = zjjg1
+           //汇总向上层
+           hzb.object.x_dj[xb2]     = hzb.object.x_dj[xb2]     + hzb.object.x_dj[xb1]     * hzb.object.x_sl[xb1]      //标价
+           hzb.object.x_bj_dj[xb2]  = hzb.object.x_bj_dj[xb2]  + hzb.object.x_bj_dj[xb1]  * hzb.object.x_sl[xb1]   //该用户进价
+           hzb.object.x_bjb_dj[xb2] = hzb.object.x_bjb_dj[xb2] + hzb.object.x_bjb_dj[xb1] * hzb.object.x_sl[xb1]  //最低单价
+           hzb.object.x_bjb_bj[xb2] = hzb.object.x_bjb_bj[xb2] + hzb.object.x_bjb_bj[xb1] * hzb.object.x_sl[xb1]  //市价
+           hzb.object.x_wzfy[xb2]   = hzb.object.x_wzfy[xb2]   + hzb.object.x_wzfy[xb1]   * hzb.object.x_sl[xb1] //其它费用 
+		 case  12  to 14  //辅料   壳体   安装
+			  choose case curjslx
+				  case 1     //系数比例计算价格
+					 if js1_2(xb1,xb2) = false then return false; 
+				  case else  //输入价格
+					 if js1_3(xb1,xb2)  = false then return false;
+			  end choose   
+		 case  15  //包装
+			   choose case curjslx
+				  case 1 
+					 if js1_2(xb1,xb2) = false then return false; //计算价格
+				  case 2   //按照算法得到价格
+					  //算该项的价格
+				     str1 = trim(hzb.object.x_ggxh[xb1]) ; str1 = right(str1,len(str1) - 2 )
+				     if str1 = "" and  isnull(str1) then  
+					     str1 = hzb.object.x_bm[xb1]; messagebox("警告","包装体积栏输入错误?"+char(10)+"项编号：" + str1); return false
+				     end if
+				     //计算体积
+			 	     dl1 = pos(str1,"*")
+				     if dl1 <> 0 then  dl2 = pos(str1,"*",dl1 + 1);
+				     if dl1 = 0 or dl2 = 0 then
+					     str1 = hzb.object.x_bm[xb1]; messagebox("警告","包装体积栏输入错误?"+char(10)+"项编号：" + str1); return false
+				     end if
+				     dl3 = len(str1); str3  = right(str1,dl3 - dl2);str2  = mid(str1,dl1 + 1 ,dl2 - dl1 - 1 ); str1 = left(str1,dl1 - 1)
+				     dl1 = double(str1);dl2 = double(str2);dl3 = double(str3)
+				     tj = dl1 * dl2 * dl3/1000000000
+				     if tj <=0 then
+					     str1 = hzb.object.x_bm[xb1]; messagebox("警告","包装体积栏输入错误?"+char(10)+"项编号：" + str1); return false
+				     end if
+				     n = 0//查找单位价格
+				     for m = 1 to bzbcnt
+					     if bzb.object.zd[m] <= tj and bzb.object.zg[m] >= tj then
+						      dl1 = bzb.object.jg[m];	dl1 = dl1 * tj ; n = 1;	exit;
+					     end if
+				     next
+				     if n = 0 then
+					     messagebox("警告","包装价格库中无此档次的包装单价?"+char(10)+"项编号：" + str1);  return false
+				     end if
+				     ////本行记录计算
+					  hzb.object.x_bj_fdds[xb1] = 0 ;hzb.object.x_bjb_fdds[xb1] = 0 ;hzb.object.x_fdds[xb1]= 0
+				     zjjg1 = dl1 ;hzb.object.x_dj[xb1] = zjjg1 ;hzb.object.x_bj_dj[xb1] = zjjg1 
+				     hzb.object.x_bjb_dj[xb1] = zjjg1 ;hzb.object.x_bjb_bj[xb1] = zjjg1
+		           //进行汇总
+				     hzb.object.x_dj[xb2]     = hzb.object.x_dj[xb2]     + hzb.object.x_dj[xb1] * hzb.object.x_sl[xb1] //标价
+                 hzb.object.x_bj_dj[xb2]  = hzb.object.x_bj_dj[xb2]  + hzb.object.x_bj_dj[xb1] * hzb.object.x_sl[xb1]//该用户进价
+                 hzb.object.x_bjb_dj[xb2] = hzb.object.x_bjb_dj[xb2] + hzb.object.x_bjb_dj[xb1] * hzb.object.x_sl[xb1]  //最低单价
+                 hzb.object.x_bjb_bj[xb2] = hzb.object.x_bjb_bj[xb2] + hzb.object.x_bjb_bj[xb1] * hzb.object.x_sl[xb1] //市价
+                 hzb.object.x_wzfy[xb2]   = hzb.object.x_wzfy[xb2]   + hzb.object.x_wzfy[xb1] * hzb.object.x_sl[xb1] //其它费用 
+ 				  case else // 0
+					 if  js1_3(xb1,xb2) = false then return false;  //输入价格
+			  end choose
+		case  16  //网印
+			 choose case curjslx
+				  case 1 
+					 if  js1_2(xb1,xb2) =  false then return false;  //计算价格
+				  case 2   //按照算法得到价格
+				     sk = trim(hzb.object.x_bm[xb1]);    str1 = trim(hzb.object.x_ggxh[xb1]); str1 = right(str1,len(str1) - 2)
+				     if str1 = "" and  isnull(str1) then  
+					     messagebox("警告","网印说明栏输入错误?"+char(10)+"项编号：" + sk) ; return false
+				     end if
+				     dl1 = pos(str1,"=")
+				     if dl1 <= 0 then
+					     messagebox("警告","网印说明栏输入错误?"+char(10)+"项编号：" + sk) ; return  false
+				     end if
+				     dl2 = len(str1);str2 = left(str1,dl1 - 1);str1 = right(str1,dl2 - dl1 );
+				     dl1 = pos(str1,"*")
+				     if dl1 <= 0 then
+					     messagebox("警告","网印说明栏输入错误?"+char(10)+"项编号：" + sk) ; return false
+				     end if
+				     dl2 = double(right(str1,len(str1) - dl1));	dl1 = double(left(str1,dl1 - 1))
+				     if dl1 <= 0 or dl2 <= 0 then
+					      messagebox("警告","网印说明栏输入错误?"+char(10)+"项编号：" + sk) ; return false
+				     end if
+				     tj = dl1 * dl2 / 10000; n = 0
+				     for m = 1 to wybcnt
+					      if wyb.object.mc[m] = str2 then
+						      dl3 = wyb.object.dj[m];n = 1;exit
+					      end if
+				     next
+				     if n <= 0 then
+					      messagebox("警告","网印价格库中没有此类型的网印单价?"+char(10)+"项编号：" + sk ) ; return false
+				     end if
+				     dl1 = tj * dl3
+					  hzb.object.x_bj_fdds[xb1]= 0 ;hzb.object.x_bjb_fdds[xb1]= 0 ;hzb.object.x_fdds[xb1] = 0
+				     zjjg1 = dl1 ;		hzb.object.x_bj_dj[xb1]  = zjjg1 ; hzb.object.x_dj[xb1]     = zjjg1  
+					  hzb.object.x_bjb_dj[xb1]     = zjjg1 ;hzb.object.x_bjb_bj[xb1]     = zjjg1
+
+                 hzb.object.x_dj[xb2]     = hzb.object.x_dj[xb2]     +  hzb.object.x_dj[xb1] * hzb.object.x_sl[xb1] //标价
+                 hzb.object.x_bj_dj[xb2]  = hzb.object.x_bj_dj[xb2]  +  hzb.object.x_bj_dj[xb1] * hzb.object.x_sl[xb1]//该用户进价
+                 hzb.object.x_bjb_dj[xb2] = hzb.object.x_bjb_dj[xb2] +  hzb.object.x_bjb_dj[xb1] * hzb.object.x_sl[xb1]  //最低单价
+                 hzb.object.x_bjb_bj[xb2] = hzb.object.x_bjb_bj[xb2] +  hzb.object.x_bjb_bj[xb1] * hzb.object.x_sl[xb1]//市价
+                 hzb.object.x_wzfy[xb2]   = hzb.object.x_wzfy[xb2]   +  hzb.object.x_wzfy[xb1]* hzb.object.x_sl[xb1] //其它费用 
+            case else
+					  if js1_3(xb1,xb2) = false then return false; //输入价格
+		   end choose
+    end choose
+    return true
+-------function js1_2() -----------
+//xb1结算到xb2
+long xb1,xb2, k1,k2 , le ,p1,p2,p3,p4
+string cu,custr,curstr,cuustr,jsjs[]
+dec{2}  zjjg1,zjjg2,zjjg3,zjjg4
+ xb1 = h1 ;xb2 = h2
+ curstr = trim(hzb.object.x_ggxh[xb1])  
+ p3 =  len(curstr) - 2
+ custr = mid(curstr,3 );	curstr = custr 
+	//拆分基数
+	p2= 1 ;jsjs[p2] = ""
+	k1 = len(curstr);	p3 = pos(curstr,"+",1)
+	do while p3 > 0 
+	   jsjs[p2] = trim(left(curstr,p3 - 1));  p2 = p2 + 1 ; jsjs[p2] = ""
+	  	custr = mid(curstr,p3+1  );    curstr = trim(custr)
+		p3 = pos(curstr,"+",1)
+	loop
+	jsjs[p2] =   trim(curstr)
+	hzb.object.x_bj_fdds[xb1]  =  0 ;	hzb.object.x_bjb_fdds[xb1]  =  0 ;	hzb.object.x_fdds[xb1]  = 0
+	hzb.object.x_dj[xb1]     =0     ;	hzb.object.x_bj_dj[xb1]  = 0     ;   hzb.object.x_bjb_dj[xb1]  = 0
+	hzb.object.x_bjb_bj[xb1] = 0
+//计算本计算行  
+  for p1 = 1 to p2
+	   cu = hzb.object.x_bm[xb1] ;	le = len(cu);	   k2 = 0 ;	 
+	   if le > 4 then
+		   le = le - 4
+		   for k1 = xb2   to xb1 - 1
+		      if left(hzb.object.x_bm[k1] ,le ) = left(cu,le) and trim(hzb.object.x_mc[k1]) = jsjs[p1]  then
+		          k2 = k1;   exit
+			   end if
+		   next
+	   else
+		  for k1 = xb2  to xb1 - 1
+			   curstr = hzb.object.x_bm[k1]
+			   if len(curstr) = 4 and trim(hzb.object.x_mc[k1]) = jsjs[p1] then
+			       k2 = k1; exit
+		      end if
+		  next
+	  end if
+     if k2 <= 0 then
+		  curstr = "编号：" + hzb.object.x_bm[xb1] + "==" ;	curstr = curstr +"项名称：" + hzb.object.x_mc[xb1]
+		  messagebox("警告:计算行的基数栏《说明栏》输入错误!",curstr )
+		  return false
+	  end if
+	  //根据第 k2行记录计算本xb1行记录 的各个对应数据
+	  
+	   zjjg1 = hzb.object.x_dj[k2] * hzb.object.x_jsgsbh[xb1]/100  //标价  
+		hzb.object.x_dj[xb1]     = hzb.object.x_dj[xb1] + zjjg1
+		zjjg2 = hzb.object.x_bj_dj[k2] * hzb.object.x_jsgsbh[xb1]/100  //该用户进价
+ 	   hzb.object.x_bj_dj[xb1]  = hzb.object.x_bj_dj[xb1]+  zjjg2
+		zjjg2 = hzb.object.x_bjb_dj[k2] * hzb.object.x_jsgsbh[xb1]/100  //该用户进价
+		hzb.object.x_bjb_dj[xb1]  = hzb.object.x_bjb_dj[xb1] + zjjg2
+		zjjg2 = hzb.object.x_bjb_bj[k2] * hzb.object.x_jsgsbh[xb1]/100  //该用户进价
+		hzb.object.x_bjb_bj[xb1] = hzb.object.x_bjb_bj[xb1]  + zjjg2
+		hzb.object.x_fdds[xb1] = 0;hzb.object.x_bj_fdds[xb1] = 0;hzb.object.x_bjb_fdds[xb1] = 0;
+	next	
+	//进行汇总
+	zjjg1 = hzb.object.x_dj[xb1] * hzb.object.x_sl[xb1]    //标价
+   zjjg2 = hzb.object.x_bj_dj[xb1] * hzb.object.x_sl[xb1] //该用户进价
+   zjjg3 = hzb.object.x_bjb_dj[xb1] * hzb.object.x_sl[xb1] //最低单价
+   zjjg4 = hzb.object.x_bjb_bj[xb1] * hzb.object.x_sl[xb1] //市价
+   hzb.object.x_dj[xb2]     = hzb.object.x_dj[xb2]     +  zjjg1 //标价
+   hzb.object.x_bj_dj[xb2]  = hzb.object.x_bj_dj[xb2]  +zjjg2//该用户进价
+   hzb.object.x_bjb_dj[xb2] = hzb.object.x_bjb_dj[xb2] +zjjg3  //最低单价
+   hzb.object.x_bjb_bj[xb2] = hzb.object.x_bjb_bj[xb2] +zjjg4 //市价
+   hzb.object.x_wzfy[xb2]   = hzb.object.x_wzfy[xb2]   + hzb.object.x_wzfy[xb1] * hzb.object.x_sl[xb1] //其它费用 
+   return true
+
+ -------function js1_3() -----------
+ //直接输入项结算
+dec{2}  zjjg1,zjjg2,zjjg3,zjjg4
+//计算本行记录
+hzb.object.x_bj_fdds[xb1]  = 0; hzb.object.x_bjb_fdds[xb1] = 0
+hzb.object.x_bjb_dj[xb1]   = hzb.object.x_bj_dj[xb1]  
+//向上层汇总
+zjjg1 = hzb.object.x_dj[xb1] * hzb.object.x_sl[xb1]    //标价
+zjjg2 = hzb.object.x_bj_dj[xb1] * hzb.object.x_sl[xb1] //该用户进价
+zjjg3 = hzb.object.x_bjb_dj[xb1] * hzb.object.x_sl[xb1] //最低单价
+zjjg4 = hzb.object.x_bjb_bj[xb1] * hzb.object.x_sl[xb1] //市价
+
+hzb.object.x_dj[xb2]     = hzb.object.x_dj[xb2]     +  zjjg1 //标价
+hzb.object.x_bj_dj[xb2]  = hzb.object.x_bj_dj[xb2]  +zjjg2//该用户进价
+hzb.object.x_bjb_dj[xb2] = hzb.object.x_bjb_dj[xb2] +zjjg3  //最低单价
+hzb.object.x_bjb_bj[xb2] = hzb.object.x_bjb_bj[xb2] +zjjg4 //市价
+hzb.object.x_wzfy[xb2]   = hzb.object.x_wzfy[xb2]   +hzb.object.x_wzfy[xb1] * hzb.object.x_sl[xb1]  //其它费用 
+return true				
+
+ -------function js1_4() ------
+ //集合结算
+dec{2}  zjjg1,zjjg2,zjjg3,zjjg4
+//汇总向上层
+  zjjg1 = hzb.object.x_dj[xb1] * hzb.object.x_sl[xb1]    //标价
+  zjjg2 = hzb.object.x_bj_dj[xb1] * hzb.object.x_sl[xb1] //该用户进价
+  zjjg3 = hzb.object.x_bjb_dj[xb1] * hzb.object.x_sl[xb1] //最低单价
+  zjjg4 = hzb.object.x_bjb_bj[xb1] * hzb.object.x_sl[xb1] //市价
+  hzb.object.x_dj[xb2]     = hzb.object.x_dj[xb2]     +  zjjg1 //标价
+  hzb.object.x_bj_dj[xb2]  = hzb.object.x_bj_dj[xb2]  +zjjg2//该用户进价
+  hzb.object.x_bjb_dj[xb2] = hzb.object.x_bjb_dj[xb2] +zjjg3  //最低单价
+  hzb.object.x_bjb_bj[xb2] = hzb.object.x_bjb_bj[xb2] +zjjg4 //市价
+  hzb.object.x_wzfy[xb2]   = hzb.object.x_wzfy[xb2]   +hzb.object.x_wzfy[xb1]* hzb.object.x_sl[xb1] //其它费用 
+  return true
+  -----
+  -------function js2_1() ------
+  long xb1,xb2
+xb1 = h1
+xb2 = h2
+double sl1,sl2
+dec{2} zjjg
+zjjg = flhzhzb.object.x_zj1[xb1] * flhzhzb.object.x_sl[xb1]
+flhzhzb.object.x_zj1[xb2]     = flhzhzb.object.x_zj1[xb2]     + zjjg
+zjjg = flhzhzb.object.x_zj1_bj[xb1] * flhzhzb.object.x_sl[xb1] 
+flhzhzb.object.x_zj1_bj[xb2]  = flhzhzb.object.x_zj1_bj[xb2]  + zjjg  
+zjjg =  flhzhzb.object.x_zj1_jj[xb1] * flhzhzb.object.x_sl[xb1] 
+flhzhzb.object.x_zj1_jj[xb2]  = flhzhzb.object.x_zj1_jj[xb2]  +  zjjg
+zjjg =  flhzhzb.object.x_zj1_scj[xb1] * flhzhzb.object.x_sl[xb1] 
+flhzhzb.object.x_zj1_scj[xb2] = flhzhzb.object.x_zj1_scj[xb2] +  zjjg
+zjjg =  flhzhzb.object.x_zj1_zdj[xb1] * flhzhzb.object.x_sl[xb1] 
+flhzhzb.object.x_zj1_zdj[xb2] = flhzhzb.object.x_zj1_zdj[xb2] +  zjjg
+zjjg =  flhzhzb.object.x_zj2[xb1] * flhzhzb.object.x_sl[xb1] 
+flhzhzb.object.x_zj2[xb2] = flhzhzb.object.x_zj2[xb2] + zjjg
+zjjg =  flhzhzb.object.x_zj3[xb1] * flhzhzb.object.x_sl[xb1]
+flhzhzb.object.x_zj3[xb2] = flhzhzb.object.x_zj3[xb2] +  zjjg
+zjjg =  flhzhzb.object.x_zj4[xb1] * flhzhzb.object.x_sl[xb1] 
+flhzhzb.object.x_zj4[xb2] = flhzhzb.object.x_zj4[xb2] + zjjg
+zjjg =  flhzhzb.object.x_zj5[xb1] * flhzhzb.object.x_sl[xb1]
+flhzhzb.object.x_zj5[xb2] = flhzhzb.object.x_zj5[xb2] +   zjjg
+zjjg =  flhzhzb.object.x_zj6[xb1] * flhzhzb.object.x_sl[xb1] 
+flhzhzb.object.x_zj6[xb2] = flhzhzb.object.x_zj6[xb2] +  zjjg
+zjjg = flhzhzb.object.x_zj7[xb1] * flhzhzb.object.x_sl[xb1] 
+flhzhzb.object.x_zj7[xb2] = flhzhzb.object.x_zj7[xb2] +   zjjg
+zjjg =  flhzhzb.object.x_zj8[xb1] * flhzhzb.object.x_sl[xb1] 
+flhzhzb.object.x_zj8[xb2] = flhzhzb.object.x_zj8[xb2] +  zjjg
+zjjg =  flhzhzb.object.x_zj9[xb1] * flhzhzb.object.x_sl[xb1] 
+flhzhzb.object.x_zj9[xb2] = flhzhzb.object.x_zj9[xb2] +  zjjg
+zjjg =  flhzhzb.object.x_zj10[xb1] * flhzhzb.object.x_sl[xb1] 
+flhzhzb.object.x_zj10[xb2] = flhzhzb.object.x_zj10[xb2] +  zjjg
+zjjg =  flhzhzb.object.x_zj2_zdj[xb1] * flhzhzb.object.x_sl[xb1] 
+flhzhzb.object.x_zj2_zdj[xb2] = flhzhzb.object.x_zj2_zdj[xb2] +  zjjg
+zjjg =  flhzhzb.object.x_zj3_zdj[xb1] * flhzhzb.object.x_sl[xb1] 
+flhzhzb.object.x_zj3_zdj[xb2] = flhzhzb.object.x_zj3_zdj[xb2] +  zjjg
+zjjg = flhzhzb.object.x_zj4_zdj[xb1] * flhzhzb.object.x_sl[xb1] 
+flhzhzb.object.x_zj4_zdj[xb2] = flhzhzb.object.x_zj4_zdj[xb2] +   zjjg
+zjjg = flhzhzb.object.x_zj5_zdj[xb1] * flhzhzb.object.x_sl[xb1] 
+flhzhzb.object.x_zj5_zdj[xb2] = flhzhzb.object.x_zj5_zdj[xb2] +  zjjg
+zjjg =  flhzhzb.object.x_zj6_zdj[xb1] * flhzhzb.object.x_sl[xb1] 
+flhzhzb.object.x_zj6_zdj[xb2] = flhzhzb.object.x_zj6_zdj[xb2] +  zjjg
+zjjg =  flhzhzb.object.x_zj7_zdj[xb1] * flhzhzb.object.x_sl[xb1] 
+flhzhzb.object.x_zj7_zdj[xb2] = flhzhzb.object.x_zj7_zdj[xb2] +  zjjg
+zjjg = flhzhzb.object.x_zj8_zdj[xb1] * flhzhzb.object.x_sl[xb1] 
+flhzhzb.object.x_zj8_zdj[xb2] = flhzhzb.object.x_zj8_zdj[xb2] +   zjjg
+zjjg =  flhzhzb.object.x_zj9_zdj[xb1] * flhzhzb.object.x_sl[xb1]
+flhzhzb.object.x_zj9_zdj[xb2] = flhzhzb.object.x_zj9_zdj[xb2] +   zjjg
+zjjg =  flhzhzb.object.x_zj10_zdj[xb1] * flhzhzb.object.x_sl[xb1] 
+flhzhzb.object.x_zj10_zdj[xb2] = flhzhzb.object.x_zj10_zdj[xb2] +  zjjg
+
+return true
+
+------ 数据窗口 dw_bjbhzb() -----------
+  SELECT BJB.x_bm,   
+         BJB.x_mc,   
+         BJB.x_dw,   
+         BJB.x_dj,   
+         BJB.x_fdds,   
+         BJB.x_sl,   
+         BJB.x_bj_fdds,   
+         BJB.x_bj_dj,   
+         BJB.x_bjb_bj,   
+         BJB.x_bjb_dj,   
+         BJB.x_bjb_datetime,   
+         BJB.x_bjb_fdds,   
+         BJB.x_wzfy,   
+         BJB.x_flbh,   
+         BJB.x_ggxh,   
+         BJB.x_sccj,   
+         BJB.x_jsgsbh,   
+         BJB.x_bz,   
+         BJB.x_wzdh,   
+         BJB.x_lx,   
+         BJB.x_cgf,   
+         BJB.x_key_ry,   
+         BJB.fabh  
+    FROM BJB  
+   WHERE BJB.fabh = :bh   
+ORDER BY BJB.x_bm ASC   
+---------------------------------
+------- 数据窗口 dw_bjb_xmhz_src1---------
+  SELECT BJB_HZB.FABH,   
+         BJB_HZB.x_bm,   
+         BJB_HZB.x_mc,   
+         BJB_HZB.x_sm,   
+         BJB_HZB.x_lx,   
+         BJB_HZB.x_sl,   
+         BJB_HZB.x_zj1,   
+         BJB_HZB.x_zj1_bj,   
+         BJB_HZB.x_zj1_jj,   
+         BJB_HZB.x_zj1_scj,   
+         BJB_HZB.x_zj1_zdj,   
+         BJB_HZB.x_zj2,   
+         BJB_HZB.x_zj2_zdj,   
+         BJB_HZB.x_zj3,   
+         BJB_HZB.x_zj3_zdj,   
+         BJB_HZB.x_zj4,   
+         BJB_HZB.x_zj4_zdj,   
+         BJB_HZB.x_zj5,   
+         BJB_HZB.x_zj5_zdj,   
+         BJB_HZB.x_zj6,   
+         BJB_HZB.x_zj6_zdj,   
+         BJB_HZB.x_zj7,   
+         BJB_HZB.x_zj7_zdj,   
+         BJB_HZB.x_zj8,   
+         BJB_HZB.x_zj8_zdj,   
+         BJB_HZB.x_zj9,   
+         BJB_HZB.x_zj9_zdj,   
+         BJB_HZB.x_zj10,   
+         BJB_HZB.x_zj10_zdj,   
+         BJB_HZB.x_wzfy,   
+         BJB_HZB.x_cgf,   
+         BJB_HZB.x_flbh,   
+         BJB_HZB.x_ggxh,   
+         BJB_HZB.x_sccj,   
+         BJB_HZB.x_key_ry  
+    FROM BJB_HZB  
+   WHERE ( BJB_HZB.FABH = :fl ) AND  
+         ( BJB_HZB.x_bm <> '0' ) AND  
+         (BJB_HZB.x_lx = 11 OR  
+         (BJB_HZB.x_lx = 1 AND  
+         LEN(BJB_HZB.x_bm) = 4)) AND  
+         BJB_HZB.x_bm <> '9999'   
+ORDER BY BJB_HZB.x_sm ASC,   
+         BJB_HZB.x_bm ASC   
+---------------------------------
+
+------- 数据窗口 dw_bjb_xmhz_src2---------
+  SELECT BJB_HZB.FABH,   
+         BJB_HZB.x_mc,   
+         BJB_HZB.x_lx,   
+         BJB_HZB.x_ggxh,   
+         BJB_HZB.x_bm  
+    FROM BJB_HZB  
+   WHERE ( BJB_HZB.FABH = :dh ) AND  
+         ( BJB_HZB.x_lx = 11 )   
+ORDER BY BJB_HZB.x_bm ASC   
+---------------------------------
+
+------- 数据窗口 dw_bjb_xmhz_5---------
+  SELECT BJHZB.fabh,   
+         BJHZB.famc,   
+         BJHZB.x_bh,   
+         BJHZB.x_mc,   
+         BJHZB.bz,   
+         BJHZB.x_flbh  
+    FROM BJHZB  
+   WHERE ( BJHZB.fabh = :fah ) AND  
+         ( len(BJHZB.x_bh) >= 4 )   
+ORDER BY BJHZB.x_bh ASC   
+---------------------------------
+
+------- 数据窗口 dw_bjb_xmhz_7---------
+  SELECT BJB_XMYJB.fabh,   
+         BJB_XMYJB.x_dyh,   
+         BJB_XMYJB.x_zsl,   
+         BJB_XMYJB.x_dymc  
+    FROM BJB_XMYJB  
+   WHERE ( BJB_XMYJB.fabh = :fah ) AND  
+         ( BJB_XMYJB.x_lx = 1 ) AND  
+         ( BJB_XMYJB.x_zsl > 0 )   
+ORDER BY BJB_XMYJB.fabh ASC,   
+         BJB_XMYJB.x_dyh ASC   
+---------------------------------
+
+------- 数据窗口 dw_bjd_hzb---------
+  SELECT BJB_HZB.FABH,   
+         BJB_HZB.x_bm,   
+         BJB_HZB.x_zj1,   
+         BJB_HZB.x_zj1_bj,   
+         BJB_HZB.x_zj1_jj,   
+         BJB_HZB.x_zj1_scj,   
+         BJB_HZB.x_zj1_zdj,   
+         BJB_HZB.x_zj2,   
+         BJB_HZB.x_zj3,   
+         BJB_HZB.x_zj4,   
+         BJB_HZB.x_zj5,   
+         BJB_HZB.x_zj6,   
+         BJB_HZB.x_zj7,   
+         BJB_HZB.x_zj8,   
+         BJB_HZB.x_zj9,   
+         BJB_HZB.x_zj10,   
+         BJB_HZB.x_wzfy,   
+         BJB_HZB.x_mc,   
+         BJB_HZB.x_sm,   
+         BJB_HZB.x_lx,   
+         BJB_HZB.x_sl,   
+         BJB_HZB.x_zj2_zdj,   
+         BJB_HZB.x_zj3_zdj,   
+         BJB_HZB.x_zj4_zdj,   
+         BJB_HZB.x_zj5_zdj,   
+         BJB_HZB.x_zj6_zdj,   
+         BJB_HZB.x_zj7_zdj,   
+         BJB_HZB.x_zj9_zdj,   
+         BJB_HZB.x_zj8_zdj,   
+         BJB_HZB.x_zj10_zdj,   
+         BJB_HZB.x_cgf,   
+         BJB_HZB.x_flbh,   
+         BJB_HZB.x_ggxh,   
+         BJB_HZB.x_sccj,   
+         BJB_HZB.x_key_ry  
+    FROM BJB_HZB  
+   WHERE BJB_HZB.FABH = :bh   
+ORDER BY BJB_HZB.x_bm ASC   
+---------------------------------
